@@ -1,0 +1,330 @@
+name: Lint
+# Multi-language linting reusable workflow supporting Python, Go, Shell, YAML, and Helm
+
+on:
+  workflow_call:
+    inputs:
+      python:
+        description: 'Enable Python linting with ruff'
+        required: false
+        type: boolean
+        default: false
+      python-version:
+        description: 'Python version to use for ruff'
+        required: false
+        type: string
+        default: '3.12'
+      ruff-version:
+        description: 'Ruff version to install (empty for latest)'
+        required: false
+        type: string
+        default: ''
+      ruff-args:
+        description: 'Additional arguments to pass to ruff check'
+        required: false
+        type: string
+        default: '.'
+      go:
+        description: 'Enable Go linting with golangci-lint'
+        required: false
+        type: boolean
+        default: false
+      go-version:
+        description: 'Go version to use'
+        required: false
+        type: string
+        default: 'stable'
+      golangci-lint-version:
+        description: 'golangci-lint version to install'
+        required: false
+        type: string
+        default: 'latest'
+      golangci-lint-args:
+        description: 'Additional arguments to pass to golangci-lint'
+        required: false
+        type: string
+        default: ''
+      shell:
+        description: 'Enable shell script linting with shellcheck'
+        required: false
+        type: boolean
+        default: false
+      shellcheck-version:
+        description: 'ShellCheck version to use'
+        required: false
+        type: string
+        default: 'stable'
+      shellcheck-paths:
+        description: 'Paths to check for shell scripts (space-separated)'
+        required: false
+        type: string
+        default: '.'
+      shellcheck-args:
+        description: 'Additional arguments to pass to shellcheck'
+        required: false
+        type: string
+        default: ''
+      yaml:
+        description: 'Enable YAML linting with yamllint'
+        required: false
+        type: boolean
+        default: false
+      yamllint-config:
+        description: 'Path to yamllint config file'
+        required: false
+        type: string
+        default: ''
+      yamllint-args:
+        description: 'Additional arguments to pass to yamllint'
+        required: false
+        type: string
+        default: '.'
+      helm:
+        description: 'Enable Helm chart linting'
+        required: false
+        type: boolean
+        default: false
+      helm-chart-path:
+        description: 'Path to Helm chart(s) to lint'
+        required: false
+        type: string
+        default: 'charts/'
+      helm-args:
+        description: 'Additional arguments to pass to helm lint'
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: 'Working directory for all lint commands'
+        required: false
+        type: string
+        default: '.'
+      fail-fast:
+        description: 'Stop on first linter failure'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      python-status:
+        description: 'Python lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.python-status }}
+      go-status:
+        description: 'Go lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.go-status }}
+      shell-status:
+        description: 'Shell lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.shell-status }}
+      yaml-status:
+        description: 'YAML lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.yaml-status }}
+      helm-status:
+        description: 'Helm lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.helm-status }}
+      overall-status:
+        description: 'Overall lint result: success or failure'
+        value: ${{ jobs.lint.outputs.overall-status }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    outputs:
+      python-status: ${{ steps.python-lint.outcome || 'skipped' }}
+      go-status: ${{ steps.go-lint.outcome || 'skipped' }}
+      shell-status: ${{ steps.shell-lint.outcome || 'skipped' }}
+      yaml-status: ${{ steps.yaml-lint.outcome || 'skipped' }}
+      helm-status: ${{ steps.helm-lint.outcome || 'skipped' }}
+      overall-status: ${{ steps.summary.outputs.status }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Python Linting with Ruff
+      - name: Set up Python
+        if: inputs.python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Ruff
+        if: inputs.python
+        run: |
+          if [[ -n "${{ inputs.ruff-version }}" ]]; then
+            pip install ruff==${{ inputs.ruff-version }}
+          else
+            pip install ruff
+          fi
+
+      - name: Run Ruff
+        id: python-lint
+        if: inputs.python
+        continue-on-error: ${{ !inputs.fail-fast }}
+        run: |
+          echo "::group::Ruff Output"
+          ruff check ${{ inputs.ruff-args }}
+          echo "::endgroup::"
+
+      # Go Linting with golangci-lint
+      - name: Set up Go
+        if: inputs.go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Run golangci-lint
+        id: go-lint
+        if: inputs.go
+        uses: golangci/golangci-lint-action@v6
+        continue-on-error: ${{ !inputs.fail-fast }}
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          args: ${{ inputs.golangci-lint-args }}
+          working-directory: ${{ inputs.working-directory }}
+
+      # Shell Linting with ShellCheck
+      - name: Run ShellCheck
+        id: shell-lint
+        if: inputs.shell
+        uses: ludeeus/action-shellcheck@2.0.0
+        continue-on-error: ${{ !inputs.fail-fast }}
+        with:
+          version: ${{ inputs.shellcheck-version }}
+          scandir: ${{ inputs.shellcheck-paths }}
+          additional_files: ${{ inputs.shellcheck-args }}
+
+      # YAML Linting with yamllint
+      - name: Install yamllint
+        if: inputs.yaml
+        run: pip install yamllint
+
+      - name: Run yamllint
+        id: yaml-lint
+        if: inputs.yaml
+        continue-on-error: ${{ !inputs.fail-fast }}
+        run: |
+          echo "::group::yamllint Output"
+          if [[ -n "${{ inputs.yamllint-config }}" ]]; then
+            yamllint -c "${{ inputs.yamllint-config }}" ${{ inputs.yamllint-args }}
+          else
+            yamllint ${{ inputs.yamllint-args }}
+          fi
+          echo "::endgroup::"
+
+      # Helm Linting
+      - name: Set up Helm
+        if: inputs.helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Run Helm lint
+        id: helm-lint
+        if: inputs.helm
+        continue-on-error: ${{ !inputs.fail-fast }}
+        run: |
+          echo "::group::Helm Lint Output"
+          # Handle both single chart and multiple charts in directory
+          CHART_PATH="${{ inputs.helm-chart-path }}"
+          if [[ -f "${CHART_PATH}/Chart.yaml" ]]; then
+            helm lint "${CHART_PATH}" ${{ inputs.helm-args }}
+          else
+            # Find all charts in the directory
+            found_charts=0
+            for chart in "${CHART_PATH}"/*/Chart.yaml; do
+              if [[ -f "$chart" ]]; then
+                chart_dir=$(dirname "$chart")
+                echo "Linting chart: $chart_dir"
+                helm lint "$chart_dir" ${{ inputs.helm-args }}
+                found_charts=1
+              fi
+            done
+            if [[ $found_charts -eq 0 ]]; then
+              echo "::warning::No Helm charts found in ${CHART_PATH}"
+            fi
+          fi
+          echo "::endgroup::"
+
+      # Generate Summary
+      - name: Generate Summary
+        id: summary
+        if: always()
+        run: |
+          echo "## Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Linter | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          OVERALL="success"
+
+          # Python
+          if [[ "${{ inputs.python }}" == "true" ]]; then
+            if [[ "${{ steps.python-lint.outcome }}" == "success" ]]; then
+              echo "| :snake: Python (ruff) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :snake: Python (ruff) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :snake: Python (ruff) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Go
+          if [[ "${{ inputs.go }}" == "true" ]]; then
+            if [[ "${{ steps.go-lint.outcome }}" == "success" ]]; then
+              echo "| :blue_square: Go (golangci-lint) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :blue_square: Go (golangci-lint) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :blue_square: Go (golangci-lint) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Shell
+          if [[ "${{ inputs.shell }}" == "true" ]]; then
+            if [[ "${{ steps.shell-lint.outcome }}" == "success" ]]; then
+              echo "| :shell: Shell (shellcheck) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :shell: Shell (shellcheck) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :shell: Shell (shellcheck) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # YAML
+          if [[ "${{ inputs.yaml }}" == "true" ]]; then
+            if [[ "${{ steps.yaml-lint.outcome }}" == "success" ]]; then
+              echo "| :page_facing_up: YAML (yamllint) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :page_facing_up: YAML (yamllint) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :page_facing_up: YAML (yamllint) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Helm
+          if [[ "${{ inputs.helm }}" == "true" ]]; then
+            if [[ "${{ steps.helm-lint.outcome }}" == "success" ]]; then
+              echo "| :wheel_of_dharma: Helm | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :wheel_of_dharma: Helm | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :wheel_of_dharma: Helm | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status:** $(if [[ "$OVERALL" == "success" ]]; then echo ':white_check_mark: All checks passed'; else echo ':x: Some checks failed'; fi)" >> $GITHUB_STEP_SUMMARY
+
+          echo "status=$OVERALL" >> $GITHUB_OUTPUT
+
+          # Fail the job if any linter failed
+          if [[ "$OVERALL" == "failure" ]]; then
+            exit 1
+          fi

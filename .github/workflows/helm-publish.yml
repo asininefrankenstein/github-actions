@@ -1,0 +1,192 @@
+name: Helm Publish
+# Reusable workflow for publishing Helm charts to OCI registries
+
+on:
+  workflow_call:
+    inputs:
+      chart-name:
+        description: 'Name of the Helm chart to publish'
+        required: true
+        type: string
+      chart-path:
+        description: 'Path to the chart directory (defaults to charts/<chart-name>)'
+        required: false
+        type: string
+        default: ''
+      registry:
+        description: 'OCI registry to publish to (e.g., ghcr.io)'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      registry-username:
+        description: 'Registry username (defaults to github.actor for ghcr.io)'
+        required: false
+        type: string
+        default: ''
+      repository:
+        description: 'Repository owner for the chart (defaults to github.repository_owner)'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'Chart version (defaults to tag name with v prefix stripped)'
+        required: false
+        type: string
+        default: ''
+      update-dependencies:
+        description: 'Run helm dependency update before publishing'
+        required: false
+        type: boolean
+        default: true
+      lint:
+        description: 'Run helm lint before publishing'
+        required: false
+        type: boolean
+        default: true
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      registry-password:
+        description: 'Registry password/token (defaults to GITHUB_TOKEN for ghcr.io)'
+        required: false
+    outputs:
+      chart-name:
+        description: 'Published chart name'
+        value: ${{ jobs.publish.outputs.chart-name }}
+      chart-version:
+        description: 'Published chart version'
+        value: ${{ jobs.publish.outputs.chart-version }}
+      chart-ref:
+        description: 'Full OCI reference to the published chart'
+        value: ${{ jobs.publish.outputs.chart-ref }}
+
+jobs:
+  publish:
+    name: Publish Helm Chart
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      chart-name: ${{ steps.chart-info.outputs.name }}
+      chart-version: ${{ steps.chart-info.outputs.version }}
+      chart-ref: ${{ steps.chart-info.outputs.ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine chart path
+        id: chart-path
+        run: |
+          if [[ -n "${{ inputs.chart-path }}" ]]; then
+            echo "path=${{ inputs.chart-path }}" >> $GITHUB_OUTPUT
+          else
+            echo "path=charts/${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate chart exists
+        run: |
+          if [[ ! -f "${{ steps.chart-path.outputs.path }}/Chart.yaml" ]]; then
+            echo "::error::Chart.yaml not found at ${{ steps.chart-path.outputs.path }}/Chart.yaml"
+            exit 1
+          fi
+          echo "Found chart at ${{ steps.chart-path.outputs.path }}"
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ -n "$GITHUB_REF_NAME" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            # Strip 'v' prefix from tag for Helm version
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # Fall back to version from Chart.yaml
+            VERSION=$(grep '^version:' "${{ steps.chart-path.outputs.path }}/Chart.yaml" | awk '{print $2}')
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Determined chart version: ${VERSION}"
+
+      - name: Determine repository
+        id: repository
+        run: |
+          if [[ -n "${{ inputs.repository }}" ]]; then
+            echo "owner=${{ inputs.repository }}" >> $GITHUB_OUTPUT
+          else
+            echo "owner=${{ github.repository_owner }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Helm Lint
+        if: inputs.lint
+        run: |
+          echo "Running helm lint on ${{ steps.chart-path.outputs.path }}..."
+          helm lint "${{ steps.chart-path.outputs.path }}"
+
+      - name: Update Dependencies
+        if: inputs.update-dependencies
+        run: |
+          echo "Updating Helm dependencies for ${{ steps.chart-path.outputs.path }}..."
+          helm dependency update "${{ steps.chart-path.outputs.path }}"
+
+      - name: Publish Helm Chart
+        id: publish
+        uses: appany/helm-oci-chart-releaser@v0.5.0
+        with:
+          name: ${{ inputs.chart-name }}
+          repository: ${{ steps.repository.outputs.owner }}
+          tag: ${{ steps.version.outputs.version }}
+          path: ${{ steps.chart-path.outputs.path }}
+          registry: ${{ inputs.registry }}
+          registry_username: ${{ inputs.registry-username || github.actor }}
+          registry_password: ${{ secrets.registry-password || github.token }}
+
+      - name: Set chart info outputs
+        id: chart-info
+        run: |
+          echo "name=${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
+          echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Helm Chart Publishing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo ":white_check_mark: **Publish Successful**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":x: **Publish Failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Chart Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart Name | \`${{ inputs.chart-name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart Path | \`${{ steps.chart-path.outputs.path }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | \`${{ steps.repository.outputs.owner }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ inputs.lint }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Update Dependencies | ${{ inputs.update-dependencies }} |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Usage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Pull the chart using:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "helm pull oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }} --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Install the chart using:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "helm install my-release oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }} --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

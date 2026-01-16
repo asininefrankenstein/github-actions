@@ -1,0 +1,110 @@
+name: 'Docker Build'
+description: 'Build and push multi-arch Docker images with QEMU, Buildx, and metadata generation'
+
+inputs:
+  registry:
+    description: 'Container registry (e.g., ghcr.io, docker.io)'
+    required: false
+    default: 'ghcr.io'
+  image-name:
+    description: 'Image name (e.g., owner/repo or just repo name)'
+    required: true
+  platforms:
+    description: 'Target platforms for multi-arch builds (comma-separated)'
+    required: false
+    default: 'linux/amd64,linux/arm64'
+  push:
+    description: 'Push image to registry after build'
+    required: false
+    default: 'true'
+  context:
+    description: 'Build context path'
+    required: false
+    default: '.'
+  file:
+    description: 'Path to Dockerfile'
+    required: false
+    default: './Dockerfile'
+  build-args:
+    description: 'Build arguments (newline-separated KEY=VALUE pairs)'
+    required: false
+    default: ''
+  tags:
+    description: 'Custom tags (newline-separated, overrides auto-generated tags)'
+    required: false
+    default: ''
+  labels:
+    description: 'Custom labels (newline-separated KEY=VALUE pairs)'
+    required: false
+    default: ''
+  cache-from:
+    description: 'Cache sources (e.g., type=gha, type=registry,ref=...)'
+    required: false
+    default: 'type=gha'
+  cache-to:
+    description: 'Cache destinations (e.g., type=gha,mode=max)'
+    required: false
+    default: 'type=gha,mode=max'
+  provenance:
+    description: 'Generate provenance attestation'
+    required: false
+    default: 'true'
+
+outputs:
+  imageid:
+    description: 'Image ID'
+    value: ${{ steps.build.outputs.imageid }}
+  digest:
+    description: 'Image digest'
+    value: ${{ steps.build.outputs.digest }}
+  metadata:
+    description: 'Build result metadata'
+    value: ${{ steps.build.outputs.metadata }}
+  tags:
+    description: 'Generated tags'
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: 'Generated labels'
+    value: ${{ steps.meta.outputs.labels }}
+  version:
+    description: 'Generated version'
+    value: ${{ steps.meta.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: ${{ inputs.platforms }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Docker Metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.registry }}/${{ inputs.image-name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=sha,prefix=sha-
+
+    - name: Build and Push
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.file }}
+        platforms: ${{ inputs.platforms }}
+        push: ${{ inputs.push }}
+        tags: ${{ inputs.tags || steps.meta.outputs.tags }}
+        labels: ${{ inputs.labels || steps.meta.outputs.labels }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: ${{ inputs.cache-from }}
+        cache-to: ${{ inputs.cache-to }}
+        provenance: ${{ inputs.provenance }}
