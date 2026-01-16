@@ -1,0 +1,407 @@
+name: 'Test Summary'
+description: 'Generate rich test summaries for GitHub Actions with support for multiple test frameworks'
+
+inputs:
+  title:
+    description: 'Title for the test summary section'
+    required: false
+    default: 'Test Results'
+  results-file:
+    description: 'Path to test results file (JUnit XML, pytest JSON, or plain text)'
+    required: false
+    default: ''
+  format:
+    description: 'Test output format: auto, junit, pytest-json, go, npm, generic'
+    required: false
+    default: 'auto'
+  passed:
+    description: 'Number of passed tests (for manual input when not using a results file)'
+    required: false
+    default: ''
+  failed:
+    description: 'Number of failed tests (for manual input when not using a results file)'
+    required: false
+    default: ''
+  skipped:
+    description: 'Number of skipped tests (for manual input when not using a results file)'
+    required: false
+    default: ''
+  total:
+    description: 'Total number of tests (for manual input when not using a results file)'
+    required: false
+    default: ''
+  duration:
+    description: 'Test duration (for manual input, e.g., "1m 23s")'
+    required: false
+    default: ''
+  details:
+    description: 'Additional details to include (plain text or markdown)'
+    required: false
+    default: ''
+  details-file:
+    description: 'Path to file containing additional details (e.g., test output log)'
+    required: false
+    default: ''
+  show-passed:
+    description: 'Show passed tests in details (may produce large output)'
+    required: false
+    default: 'false'
+  max-details-lines:
+    description: 'Maximum lines to show in details section (0 for unlimited)'
+    required: false
+    default: '100'
+  badge:
+    description: 'Show status badge (pass/fail indicator)'
+    required: false
+    default: 'true'
+
+outputs:
+  status:
+    description: 'Overall test status: passed, failed, or unknown'
+    value: ${{ steps.generate-summary.outputs.status }}
+  passed-count:
+    description: 'Number of passed tests'
+    value: ${{ steps.generate-summary.outputs.passed }}
+  failed-count:
+    description: 'Number of failed tests'
+    value: ${{ steps.generate-summary.outputs.failed }}
+  total-count:
+    description: 'Total number of tests'
+    value: ${{ steps.generate-summary.outputs.total }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate Test Summary
+      id: generate-summary
+      shell: bash
+      env:
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_RESULTS_FILE: ${{ inputs.results-file }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_PASSED: ${{ inputs.passed }}
+        INPUT_FAILED: ${{ inputs.failed }}
+        INPUT_SKIPPED: ${{ inputs.skipped }}
+        INPUT_TOTAL: ${{ inputs.total }}
+        INPUT_DURATION: ${{ inputs.duration }}
+        INPUT_DETAILS: ${{ inputs.details }}
+        INPUT_DETAILS_FILE: ${{ inputs.details-file }}
+        INPUT_SHOW_PASSED: ${{ inputs.show-passed }}
+        INPUT_MAX_DETAILS_LINES: ${{ inputs.max-details-lines }}
+        INPUT_BADGE: ${{ inputs.badge }}
+      run: |
+        # Initialize variables
+        PASSED="${INPUT_PASSED:-0}"
+        FAILED="${INPUT_FAILED:-0}"
+        SKIPPED="${INPUT_SKIPPED:-0}"
+        TOTAL="${INPUT_TOTAL:-0}"
+        DURATION="${INPUT_DURATION:-}"
+        STATUS="unknown"
+        DETAILS=""
+
+        # Function to parse JUnit XML
+        parse_junit_xml() {
+          local file="$1"
+          if command -v python3 &> /dev/null; then
+            python3 << 'PYTHON_EOF'
+        import xml.etree.ElementTree as ET
+        import sys
+        import os
+
+        try:
+            tree = ET.parse(os.environ.get('INPUT_RESULTS_FILE', ''))
+            root = tree.getroot()
+
+            # Handle both single testsuite and testsuites root
+            if root.tag == 'testsuites':
+                tests = sum(int(ts.get('tests', 0)) for ts in root.findall('.//testsuite'))
+                failures = sum(int(ts.get('failures', 0)) for ts in root.findall('.//testsuite'))
+                errors = sum(int(ts.get('errors', 0)) for ts in root.findall('.//testsuite'))
+                skipped = sum(int(ts.get('skipped', 0)) for ts in root.findall('.//testsuite'))
+                time = sum(float(ts.get('time', 0)) for ts in root.findall('.//testsuite'))
+            else:
+                tests = int(root.get('tests', 0))
+                failures = int(root.get('failures', 0))
+                errors = int(root.get('errors', 0))
+                skipped = int(root.get('skipped', 0))
+                time = float(root.get('time', 0))
+
+            failed = failures + errors
+            passed = tests - failed - skipped
+
+            print(f"PASSED={passed}")
+            print(f"FAILED={failed}")
+            print(f"SKIPPED={skipped}")
+            print(f"TOTAL={tests}")
+            print(f"DURATION={time:.2f}s")
+        except Exception as e:
+            print(f"# Failed to parse JUnit XML: {e}", file=sys.stderr)
+            sys.exit(1)
+        PYTHON_EOF
+          fi
+        }
+
+        # Function to parse pytest JSON
+        parse_pytest_json() {
+          local file="$1"
+          if command -v python3 &> /dev/null; then
+            python3 << 'PYTHON_EOF'
+        import json
+        import sys
+        import os
+
+        try:
+            with open(os.environ.get('INPUT_RESULTS_FILE', ''), 'r') as f:
+                data = json.load(f)
+
+            summary = data.get('summary', {})
+            passed = summary.get('passed', 0)
+            failed = summary.get('failed', 0)
+            skipped = summary.get('skipped', 0)
+            total = summary.get('total', passed + failed + skipped)
+            duration = data.get('duration', 0)
+
+            print(f"PASSED={passed}")
+            print(f"FAILED={failed}")
+            print(f"SKIPPED={skipped}")
+            print(f"TOTAL={total}")
+            print(f"DURATION={duration:.2f}s")
+        except Exception as e:
+            print(f"# Failed to parse pytest JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        PYTHON_EOF
+          fi
+        }
+
+        # Function to parse Go test output
+        parse_go_test() {
+          local file="$1"
+          local passed=0
+          local failed=0
+          local skipped=0
+          local duration=""
+
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^---\ PASS ]]; then
+              ((passed++))
+            elif [[ "$line" =~ ^---\ FAIL ]]; then
+              ((failed++))
+            elif [[ "$line" =~ ^---\ SKIP ]]; then
+              ((skipped++))
+            elif [[ "$line" =~ ^(ok|FAIL).*[[:space:]]([0-9.]+)s ]]; then
+              duration="${BASH_REMATCH[2]}s"
+            fi
+          done < "$file"
+
+          local total=$((passed + failed + skipped))
+          echo "PASSED=$passed"
+          echo "FAILED=$failed"
+          echo "SKIPPED=$skipped"
+          echo "TOTAL=$total"
+          echo "DURATION=$duration"
+        }
+
+        # Function to parse npm test output (basic jest/mocha)
+        parse_npm_test() {
+          local file="$1"
+          local passed=0
+          local failed=0
+          local skipped=0
+
+          while IFS= read -r line; do
+            # Jest format: "Tests: X passed, Y failed, Z skipped, W total"
+            if [[ "$line" =~ Tests:.*([0-9]+)\ passed ]]; then
+              passed="${BASH_REMATCH[1]}"
+            fi
+            if [[ "$line" =~ Tests:.*([0-9]+)\ failed ]]; then
+              failed="${BASH_REMATCH[1]}"
+            fi
+            if [[ "$line" =~ Tests:.*([0-9]+)\ skipped ]]; then
+              skipped="${BASH_REMATCH[1]}"
+            fi
+            # Duration
+            if [[ "$line" =~ Time:.*([0-9.]+)\ ?s ]]; then
+              DURATION="${BASH_REMATCH[1]}s"
+            fi
+          done < "$file"
+
+          local total=$((passed + failed + skipped))
+          echo "PASSED=$passed"
+          echo "FAILED=$failed"
+          echo "SKIPPED=$skipped"
+          echo "TOTAL=$total"
+          echo "DURATION=$DURATION"
+        }
+
+        # Detect format and parse results file
+        if [[ -n "$INPUT_RESULTS_FILE" && -f "$INPUT_RESULTS_FILE" ]]; then
+          FORMAT="$INPUT_FORMAT"
+
+          # Auto-detect format
+          if [[ "$FORMAT" == "auto" ]]; then
+            case "$INPUT_RESULTS_FILE" in
+              *.xml)
+                FORMAT="junit"
+                ;;
+              *.json)
+                # Check if it's pytest format
+                if grep -q '"summary"' "$INPUT_RESULTS_FILE" 2>/dev/null; then
+                  FORMAT="pytest-json"
+                else
+                  FORMAT="generic"
+                fi
+                ;;
+              *)
+                # Try to detect by content
+                if head -1 "$INPUT_RESULTS_FILE" | grep -q '<?xml'; then
+                  FORMAT="junit"
+                elif head -1 "$INPUT_RESULTS_FILE" | grep -q '^{'; then
+                  FORMAT="pytest-json"
+                elif grep -q '=== RUN' "$INPUT_RESULTS_FILE"; then
+                  FORMAT="go"
+                elif grep -q 'Tests:' "$INPUT_RESULTS_FILE"; then
+                  FORMAT="npm"
+                else
+                  FORMAT="generic"
+                fi
+                ;;
+            esac
+          fi
+
+          # Parse based on format
+          case "$FORMAT" in
+            junit)
+              eval "$(parse_junit_xml "$INPUT_RESULTS_FILE")"
+              ;;
+            pytest-json)
+              eval "$(parse_pytest_json "$INPUT_RESULTS_FILE")"
+              ;;
+            go)
+              eval "$(parse_go_test "$INPUT_RESULTS_FILE")"
+              ;;
+            npm)
+              eval "$(parse_npm_test "$INPUT_RESULTS_FILE")"
+              ;;
+            generic)
+              # For generic format, try to extract numbers from file
+              if grep -qE 'pass|fail|skip' "$INPUT_RESULTS_FILE"; then
+                PASSED=$(grep -oE '[0-9]+ pass' "$INPUT_RESULTS_FILE" | grep -oE '[0-9]+' | head -1 || echo "0")
+                FAILED=$(grep -oE '[0-9]+ fail' "$INPUT_RESULTS_FILE" | grep -oE '[0-9]+' | head -1 || echo "0")
+                SKIPPED=$(grep -oE '[0-9]+ skip' "$INPUT_RESULTS_FILE" | grep -oE '[0-9]+' | head -1 || echo "0")
+                TOTAL=$((PASSED + FAILED + SKIPPED))
+              fi
+              ;;
+          esac
+        fi
+
+        # Override with manual inputs if provided
+        [[ -n "$INPUT_PASSED" ]] && PASSED="$INPUT_PASSED"
+        [[ -n "$INPUT_FAILED" ]] && FAILED="$INPUT_FAILED"
+        [[ -n "$INPUT_SKIPPED" ]] && SKIPPED="$INPUT_SKIPPED"
+        [[ -n "$INPUT_TOTAL" ]] && TOTAL="$INPUT_TOTAL"
+        [[ -n "$INPUT_DURATION" ]] && DURATION="$INPUT_DURATION"
+
+        # Calculate total if not set
+        if [[ "$TOTAL" == "0" || -z "$TOTAL" ]]; then
+          TOTAL=$((PASSED + FAILED + SKIPPED))
+        fi
+
+        # Determine status
+        if [[ "$FAILED" -gt 0 ]]; then
+          STATUS="failed"
+          BADGE_EMOJI=":x:"
+          BADGE_TEXT="Failed"
+        elif [[ "$PASSED" -gt 0 ]]; then
+          STATUS="passed"
+          BADGE_EMOJI=":white_check_mark:"
+          BADGE_TEXT="Passed"
+        else
+          STATUS="unknown"
+          BADGE_EMOJI=":grey_question:"
+          BADGE_TEXT="Unknown"
+        fi
+
+        # Build summary markdown
+        {
+          echo "## $INPUT_TITLE"
+          echo ""
+
+          # Badge
+          if [[ "$INPUT_BADGE" == "true" ]]; then
+            echo "**Status:** $BADGE_EMOJI $BADGE_TEXT"
+            echo ""
+          fi
+
+          # Results table
+          if [[ "$TOTAL" -gt 0 ]]; then
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| :white_check_mark: Passed | $PASSED |"
+            echo "| :x: Failed | $FAILED |"
+            if [[ "$SKIPPED" -gt 0 ]]; then
+              echo "| :fast_forward: Skipped | $SKIPPED |"
+            fi
+            echo "| **Total** | **$TOTAL** |"
+            echo ""
+
+            # Duration
+            if [[ -n "$DURATION" ]]; then
+              echo "**Duration:** $DURATION"
+              echo ""
+            fi
+
+            # Pass rate
+            if [[ "$TOTAL" -gt 0 ]]; then
+              PASS_RATE=$(awk "BEGIN {printf \"%.1f\", ($PASSED / $TOTAL) * 100}")
+              echo "**Pass Rate:** ${PASS_RATE}%"
+              echo ""
+            fi
+          else
+            echo "> :warning: No test results found"
+            echo ""
+          fi
+
+          # Additional details
+          if [[ -n "$INPUT_DETAILS" ]]; then
+            echo "### Details"
+            echo ""
+            echo "$INPUT_DETAILS"
+            echo ""
+          fi
+
+          # Details from file
+          if [[ -n "$INPUT_DETAILS_FILE" && -f "$INPUT_DETAILS_FILE" ]]; then
+            echo "### Test Output"
+            echo ""
+            echo "\`\`\`"
+
+            MAX_LINES="${INPUT_MAX_DETAILS_LINES:-100}"
+            if [[ "$MAX_LINES" -eq 0 ]]; then
+              cat "$INPUT_DETAILS_FILE"
+            else
+              LINE_COUNT=$(wc -l < "$INPUT_DETAILS_FILE")
+              if [[ "$LINE_COUNT" -gt "$MAX_LINES" ]]; then
+                head -n "$MAX_LINES" "$INPUT_DETAILS_FILE"
+                echo ""
+                echo "... (truncated, showing $MAX_LINES of $LINE_COUNT lines)"
+              else
+                cat "$INPUT_DETAILS_FILE"
+              fi
+            fi
+
+            echo "\`\`\`"
+            echo ""
+          fi
+
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Set outputs
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+        echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+        echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+        # Exit with appropriate code if tests failed
+        if [[ "$STATUS" == "failed" ]]; then
+          echo "::warning::Test summary indicates failures: $FAILED of $TOTAL tests failed"
+        fi
