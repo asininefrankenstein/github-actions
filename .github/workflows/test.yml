@@ -1,0 +1,465 @@
+name: Test
+# Configurable test runner reusable workflow supporting Python, Go, Node.js frameworks
+
+on:
+  workflow_call:
+    inputs:
+      test-command:
+        description: 'Custom test command to run (overrides framework-specific commands)'
+        required: false
+        type: string
+        default: ''
+      framework:
+        description: 'Test framework to use: auto, pytest, go, npm, bun, custom'
+        required: false
+        type: string
+        default: 'auto'
+      python-version:
+        description: 'Python version to use for pytest'
+        required: false
+        type: string
+        default: '3.12'
+      go-version:
+        description: 'Go version to use for go test'
+        required: false
+        type: string
+        default: 'stable'
+      node-version:
+        description: 'Node.js version to use for npm/bun test'
+        required: false
+        type: string
+        default: '20'
+      coverage:
+        description: 'Enable code coverage collection'
+        required: false
+        type: boolean
+        default: false
+      coverage-threshold:
+        description: 'Minimum coverage percentage to pass (0 to disable check)'
+        required: false
+        type: number
+        default: 0
+      test-args:
+        description: 'Additional arguments to pass to the test command'
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: 'Working directory for test commands'
+        required: false
+        type: string
+        default: '.'
+      install-dependencies:
+        description: 'Install dependencies before running tests'
+        required: false
+        type: boolean
+        default: true
+      timeout-minutes:
+        description: 'Timeout for test execution in minutes'
+        required: false
+        type: number
+        default: 30
+      fail-on-error:
+        description: 'Fail the workflow if tests fail'
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: 'Name for test artifacts (results, coverage). Empty to skip upload.'
+        required: false
+        type: string
+        default: 'test-results'
+      artifact-retention-days:
+        description: 'Number of days to retain test artifacts'
+        required: false
+        type: number
+        default: 7
+    outputs:
+      status:
+        description: 'Test result status: passed, failed, or unknown'
+        value: ${{ jobs.test.outputs.status }}
+      passed:
+        description: 'Number of passed tests'
+        value: ${{ jobs.test.outputs.passed }}
+      failed:
+        description: 'Number of failed tests'
+        value: ${{ jobs.test.outputs.failed }}
+      total:
+        description: 'Total number of tests'
+        value: ${{ jobs.test.outputs.total }}
+      coverage:
+        description: 'Coverage percentage (if enabled)'
+        value: ${{ jobs.test.outputs.coverage }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      status: ${{ steps.summary.outputs.status }}
+      passed: ${{ steps.summary.outputs.passed }}
+      failed: ${{ steps.summary.outputs.failed }}
+      total: ${{ steps.summary.outputs.total }}
+      coverage: ${{ steps.coverage.outputs.percentage || '' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Auto-detect framework
+      - name: Detect Framework
+        id: detect
+        run: |
+          FRAMEWORK="${{ inputs.framework }}"
+
+          if [[ "$FRAMEWORK" == "auto" ]]; then
+            if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -f "requirements.txt" ]] || [[ -f "pytest.ini" ]]; then
+              FRAMEWORK="pytest"
+              echo "Detected Python project"
+            elif [[ -f "go.mod" ]]; then
+              FRAMEWORK="go"
+              echo "Detected Go project"
+            elif [[ -f "bun.lockb" ]]; then
+              FRAMEWORK="bun"
+              echo "Detected Bun project"
+            elif [[ -f "package.json" ]]; then
+              FRAMEWORK="npm"
+              echo "Detected Node.js project"
+            else
+              FRAMEWORK="custom"
+              echo "No framework detected, using custom"
+            fi
+          fi
+
+          echo "framework=$FRAMEWORK" >> $GITHUB_OUTPUT
+
+      # Python/pytest setup
+      - name: Set up Python
+        if: steps.detect.outputs.framework == 'pytest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Python dependencies
+        if: steps.detect.outputs.framework == 'pytest' && inputs.install-dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [[ -f "requirements.txt" ]]; then
+            pip install -r requirements.txt
+          fi
+          if [[ -f "requirements-dev.txt" ]]; then
+            pip install -r requirements-dev.txt
+          fi
+          if [[ -f "requirements-test.txt" ]]; then
+            pip install -r requirements-test.txt
+          fi
+          if [[ -f "pyproject.toml" ]]; then
+            pip install -e ".[dev,test]" 2>/dev/null || pip install -e . 2>/dev/null || true
+          fi
+          pip install pytest pytest-json-report || true
+
+      # Go setup
+      - name: Set up Go
+        if: steps.detect.outputs.framework == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Install Go dependencies
+        if: steps.detect.outputs.framework == 'go' && inputs.install-dependencies
+        run: go mod download
+
+      # Node.js/npm setup
+      - name: Set up Node.js
+        if: steps.detect.outputs.framework == 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        if: steps.detect.outputs.framework == 'npm' && inputs.install-dependencies
+        run: npm ci || npm install
+
+      # Bun setup
+      - name: Set up Bun
+        if: steps.detect.outputs.framework == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Bun dependencies
+        if: steps.detect.outputs.framework == 'bun' && inputs.install-dependencies
+        run: bun install
+
+      # Run tests
+      - name: Run Tests
+        id: tests
+        continue-on-error: true
+        run: |
+          set +e
+          FRAMEWORK="${{ steps.detect.outputs.framework }}"
+          COVERAGE_FLAG="${{ inputs.coverage }}"
+          TEST_ARGS="${{ inputs.test-args }}"
+          CUSTOM_COMMAND="${{ inputs.test-command }}"
+
+          # Create results directory
+          mkdir -p .test-results
+
+          # Use custom command if provided
+          if [[ -n "$CUSTOM_COMMAND" ]]; then
+            echo "Running custom test command: $CUSTOM_COMMAND"
+            eval "$CUSTOM_COMMAND $TEST_ARGS" 2>&1 | tee .test-results/output.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+          elif [[ "$FRAMEWORK" == "pytest" ]]; then
+            echo "Running pytest tests"
+            if [[ "$COVERAGE_FLAG" == "true" ]]; then
+              pip install pytest-cov --quiet || true
+              python -m pytest \
+                --json-report --json-report-file=.test-results/results.json \
+                --cov --cov-report=json:.test-results/coverage.json \
+                --cov-report=term \
+                $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            else
+              python -m pytest \
+                --json-report --json-report-file=.test-results/results.json \
+                $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            fi
+          elif [[ "$FRAMEWORK" == "go" ]]; then
+            echo "Running go tests"
+            if [[ "$COVERAGE_FLAG" == "true" ]]; then
+              go test -v -coverprofile=.test-results/coverage.out $TEST_ARGS ./... 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+              # Convert to JSON format for summary
+              go tool cover -func=.test-results/coverage.out > .test-results/coverage-summary.txt 2>/dev/null || true
+            else
+              go test -v $TEST_ARGS ./... 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            fi
+          elif [[ "$FRAMEWORK" == "npm" ]]; then
+            echo "Running npm tests"
+            if [[ "$COVERAGE_FLAG" == "true" ]]; then
+              npm test -- --coverage $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            else
+              npm test -- $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            fi
+          elif [[ "$FRAMEWORK" == "bun" ]]; then
+            echo "Running bun tests"
+            if [[ "$COVERAGE_FLAG" == "true" ]]; then
+              bun test --coverage $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            else
+              bun test $TEST_ARGS 2>&1 | tee .test-results/output.txt
+              EXIT_CODE=${PIPESTATUS[0]}
+            fi
+          else
+            echo "::error::No test framework detected and no custom command provided"
+            EXIT_CODE=1
+          fi
+
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [[ $EXIT_CODE -eq 0 ]]; then
+            echo "outcome=success" >> $GITHUB_OUTPUT
+          else
+            echo "outcome=failure" >> $GITHUB_OUTPUT
+          fi
+
+      # Extract coverage percentage
+      - name: Extract Coverage
+        id: coverage
+        if: inputs.coverage && always()
+        run: |
+          FRAMEWORK="${{ steps.detect.outputs.framework }}"
+          COVERAGE=""
+
+          if [[ "$FRAMEWORK" == "pytest" && -f ".test-results/coverage.json" ]]; then
+            COVERAGE=$(python3 -c "import json; print(round(json.load(open('.test-results/coverage.json'))['totals']['percent_covered'], 2))" 2>/dev/null || echo "")
+          elif [[ "$FRAMEWORK" == "go" && -f ".test-results/coverage-summary.txt" ]]; then
+            COVERAGE=$(grep "total:" .test-results/coverage-summary.txt | awk '{print $3}' | tr -d '%' 2>/dev/null || echo "")
+          fi
+
+          echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+
+      # Generate test summary
+      - name: Generate Summary
+        id: summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          FRAMEWORK="${{ steps.detect.outputs.framework }}"
+          TEST_OUTCOME="${{ steps.tests.outputs.outcome }}"
+          EXIT_CODE="${{ steps.tests.outputs.exit_code }}"
+          COVERAGE="${{ steps.coverage.outputs.percentage }}"
+
+          # Initialize counters
+          PASSED=0
+          FAILED=0
+          SKIPPED=0
+          TOTAL=0
+          DURATION=""
+
+          # Parse results based on framework
+          if [[ "$FRAMEWORK" == "pytest" && -f ".test-results/results.json" ]]; then
+            PASSED=$(python3 -c "import json; d=json.load(open('.test-results/results.json')); print(d.get('summary',{}).get('passed',0))" 2>/dev/null || echo "0")
+            FAILED=$(python3 -c "import json; d=json.load(open('.test-results/results.json')); print(d.get('summary',{}).get('failed',0))" 2>/dev/null || echo "0")
+            SKIPPED=$(python3 -c "import json; d=json.load(open('.test-results/results.json')); print(d.get('summary',{}).get('skipped',0))" 2>/dev/null || echo "0")
+            TOTAL=$(python3 -c "import json; d=json.load(open('.test-results/results.json')); print(d.get('summary',{}).get('total',0))" 2>/dev/null || echo "0")
+            DURATION=$(python3 -c "import json; d=json.load(open('.test-results/results.json')); print(f\"{d.get('duration',0):.2f}s\")" 2>/dev/null || echo "")
+          elif [[ "$FRAMEWORK" == "go" && -f ".test-results/output.txt" ]]; then
+            PASSED=$(grep -c "^--- PASS" .test-results/output.txt 2>/dev/null || echo "0")
+            FAILED=$(grep -c "^--- FAIL" .test-results/output.txt 2>/dev/null || echo "0")
+            SKIPPED=$(grep -c "^--- SKIP" .test-results/output.txt 2>/dev/null || echo "0")
+            TOTAL=$((PASSED + FAILED + SKIPPED))
+            DURATION=$(grep -oE "[0-9.]+s$" .test-results/output.txt | tail -1 || echo "")
+          elif [[ -f ".test-results/output.txt" ]]; then
+            # Generic parsing for npm/bun/other
+            if grep -qE "Tests:.*passed" .test-results/output.txt; then
+              PASSED=$(grep -oE "[0-9]+ passed" .test-results/output.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+              FAILED=$(grep -oE "[0-9]+ failed" .test-results/output.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+              SKIPPED=$(grep -oE "[0-9]+ skipped" .test-results/output.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+              TOTAL=$((PASSED + FAILED + SKIPPED))
+            fi
+          fi
+
+          # Determine status
+          if [[ "$FAILED" -gt 0 ]] || [[ "$EXIT_CODE" != "0" ]]; then
+            STATUS="failed"
+            BADGE=":x:"
+            BADGE_TEXT="Failed"
+          elif [[ "$PASSED" -gt 0 ]]; then
+            STATUS="passed"
+            BADGE=":white_check_mark:"
+            BADGE_TEXT="Passed"
+          else
+            STATUS="unknown"
+            BADGE=":grey_question:"
+            BADGE_TEXT="Unknown"
+          fi
+
+          # Write summary header
+          echo "**Status:** $BADGE $BADGE_TEXT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Results table
+          if [[ "$TOTAL" -gt 0 ]]; then
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| :white_check_mark: Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+            echo "| :x: Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+            if [[ "$SKIPPED" -gt 0 ]]; then
+              echo "| :fast_forward: Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Pass rate
+            if [[ "$TOTAL" -gt 0 ]]; then
+              PASS_RATE=$(awk "BEGIN {printf \"%.1f\", ($PASSED / $TOTAL) * 100}")
+              echo "**Pass Rate:** ${PASS_RATE}%" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            # Duration
+            if [[ -n "$DURATION" ]]; then
+              echo "**Duration:** $DURATION" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "> :warning: No test results were parsed. Check the test output below." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Coverage section
+          if [[ -n "$COVERAGE" ]] && [[ "$COVERAGE" != "" ]]; then
+            echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Coverage:** ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+
+            # Check threshold
+            THRESHOLD="${{ inputs.coverage-threshold }}"
+            if [[ -n "$THRESHOLD" ]] && [[ "$THRESHOLD" != "0" ]]; then
+              COVERAGE_INT=${COVERAGE%.*}
+              if [[ "$COVERAGE_INT" -lt "$THRESHOLD" ]]; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo ":warning: Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo ":white_check_mark: Coverage meets threshold of ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Framework info
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Framework | $FRAMEWORK |" >> $GITHUB_STEP_SUMMARY
+          echo "| Working Directory | ${{ inputs.working-directory }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Enabled | ${{ inputs.coverage }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Test output (truncated)
+          if [[ -f ".test-results/output.txt" ]]; then
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -100 .test-results/output.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Set outputs
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+
+      # Upload test artifacts
+      - name: Upload Test Artifacts
+        if: always() && inputs.artifact-name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ inputs.working-directory }}/.test-results/
+            ${{ inputs.working-directory }}/coverage/
+            ${{ inputs.working-directory }}/htmlcov/
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: ignore
+
+      # Fail if tests failed and fail-on-error is true
+      - name: Check Results
+        if: always()
+        run: |
+          EXIT_CODE="${{ steps.tests.outputs.exit_code }}"
+          FAIL_ON_ERROR="${{ inputs.fail-on-error }}"
+
+          if [[ "$EXIT_CODE" != "0" ]] && [[ "$FAIL_ON_ERROR" == "true" ]]; then
+            echo "::error::Tests failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+
+          # Check coverage threshold
+          COVERAGE="${{ steps.coverage.outputs.percentage }}"
+          THRESHOLD="${{ inputs.coverage-threshold }}"
+
+          if [[ -n "$COVERAGE" ]] && [[ -n "$THRESHOLD" ]] && [[ "$THRESHOLD" != "0" ]]; then
+            COVERAGE_INT=${COVERAGE%.*}
+            if [[ "$COVERAGE_INT" -lt "$THRESHOLD" ]] && [[ "$FAIL_ON_ERROR" == "true" ]]; then
+              echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+              exit 1
+            fi
+          fi
