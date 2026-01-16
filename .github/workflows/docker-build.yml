@@ -1,0 +1,192 @@
+name: Docker Build
+# Reusable workflow for multi-arch Docker image builds using the docker composite action
+
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: 'Container registry (e.g., ghcr.io, docker.io)'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      image-name:
+        description: 'Image name (e.g., owner/repo). Defaults to repository name'
+        required: false
+        type: string
+        default: ''
+      platforms:
+        description: 'Target platforms for multi-arch builds (comma-separated)'
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+      push:
+        description: 'Push image to registry after build'
+        required: false
+        type: boolean
+        default: true
+      context:
+        description: 'Build context path'
+        required: false
+        type: string
+        default: '.'
+      file:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: './Dockerfile'
+      build-args:
+        description: 'Build arguments (newline-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+      tags:
+        description: 'Custom tags (newline-separated, overrides auto-generated tags)'
+        required: false
+        type: string
+        default: ''
+      labels:
+        description: 'Custom labels (newline-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+      cache-from:
+        description: 'Cache sources (e.g., type=gha, type=registry,ref=...)'
+        required: false
+        type: string
+        default: 'type=gha'
+      cache-to:
+        description: 'Cache destinations (e.g., type=gha,mode=max)'
+        required: false
+        type: string
+        default: 'type=gha,mode=max'
+      provenance:
+        description: 'Generate provenance attestation'
+        required: false
+        type: boolean
+        default: true
+      registry-username:
+        description: 'Registry username (defaults to github.actor for ghcr.io)'
+        required: false
+        type: string
+        default: ''
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      registry-password:
+        description: 'Registry password/token (defaults to GITHUB_TOKEN for ghcr.io)'
+        required: false
+    outputs:
+      imageid:
+        description: 'Image ID'
+        value: ${{ jobs.build.outputs.imageid }}
+      digest:
+        description: 'Image digest'
+        value: ${{ jobs.build.outputs.digest }}
+      metadata:
+        description: 'Build result metadata'
+        value: ${{ jobs.build.outputs.metadata }}
+      tags:
+        description: 'Generated tags'
+        value: ${{ jobs.build.outputs.tags }}
+      labels:
+        description: 'Generated labels'
+        value: ${{ jobs.build.outputs.labels }}
+      version:
+        description: 'Generated version'
+        value: ${{ jobs.build.outputs.version }}
+
+jobs:
+  build:
+    name: Build and Push
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      imageid: ${{ steps.docker-build.outputs.imageid }}
+      digest: ${{ steps.docker-build.outputs.digest }}
+      metadata: ${{ steps.docker-build.outputs.metadata }}
+      tags: ${{ steps.docker-build.outputs.tags }}
+      labels: ${{ steps.docker-build.outputs.labels }}
+      version: ${{ steps.docker-build.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine image name
+        id: image-name
+        run: |
+          if [[ -n "${{ inputs.image-name }}" ]]; then
+            echo "name=${{ inputs.image-name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.repository }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - name: Docker Build
+        id: docker-build
+        uses: jacaudi/github-actions/.github/actions/docker@main
+        with:
+          registry: ${{ inputs.registry }}
+          image-name: ${{ steps.image-name.outputs.name }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          build-args: ${{ inputs.build-args }}
+          tags: ${{ inputs.tags }}
+          labels: ${{ inputs.labels }}
+          cache-from: ${{ inputs.cache-from }}
+          cache-to: ${{ inputs.cache-to }}
+          provenance: ${{ inputs.provenance }}
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo ":white_check_mark: **Build Successful**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":x: **Build Failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.image-name.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platforms | \`${{ inputs.platforms }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Push | ${{ inputs.push }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Context | \`${{ inputs.context }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dockerfile | \`${{ inputs.file }}\` |" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${{ steps.docker-build.outputs.digest }}" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Image Information" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Digest:** \`${{ steps.docker-build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Version:** \`${{ steps.docker-build.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ -n "${{ steps.docker-build.outputs.tags }}" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Tags" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.docker-build.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
