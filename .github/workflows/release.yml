@@ -1,0 +1,714 @@
+name: Release Pipeline
+# Reusable workflow for automated release pipelines
+# Orchestrates: tests -> build artifacts -> create GitHub release
+
+on:
+  workflow_call:
+    inputs:
+      # Test configuration
+      run-tests:
+        description: 'Run tests before release'
+        required: false
+        type: boolean
+        default: true
+      test-command:
+        description: 'Custom test command (when run-tests is true)'
+        required: false
+        type: string
+        default: ''
+      test-framework:
+        description: 'Test framework: auto, pytest, go, npm, bun, custom'
+        required: false
+        type: string
+        default: 'auto'
+      fail-on-test-failure:
+        description: 'Fail the release if tests fail'
+        required: false
+        type: boolean
+        default: true
+
+      # Release configuration
+      create-release:
+        description: 'Create a GitHub release'
+        required: false
+        type: boolean
+        default: true
+      release-tag:
+        description: 'Tag name for the release (defaults to github.ref_name)'
+        required: false
+        type: string
+        default: ''
+      release-name:
+        description: 'Release name (defaults to tag name)'
+        required: false
+        type: string
+        default: ''
+      release-notes:
+        description: 'Custom release notes (overrides auto-generation)'
+        required: false
+        type: string
+        default: ''
+      release-notes-auto:
+        description: 'Auto-generate release notes from commits'
+        required: false
+        type: boolean
+        default: true
+      release-draft:
+        description: 'Create release as draft'
+        required: false
+        type: boolean
+        default: false
+      release-prerelease:
+        description: 'Mark release as prerelease'
+        required: false
+        type: boolean
+        default: false
+      release-latest:
+        description: 'Mark as latest release (true, false, or legacy)'
+        required: false
+        type: string
+        default: 'true'
+
+      # Build configuration
+      build-type:
+        description: 'Build type: none, docker, goreleaser, custom'
+        required: false
+        type: string
+        default: 'none'
+      build-command:
+        description: 'Custom build command (when build-type is custom)'
+        required: false
+        type: string
+        default: ''
+
+      # Docker build options (when build-type is docker)
+      docker-registry:
+        description: 'Container registry for Docker builds'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      docker-image-name:
+        description: 'Docker image name (defaults to repository name)'
+        required: false
+        type: string
+        default: ''
+      docker-platforms:
+        description: 'Target platforms for Docker multi-arch builds'
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+      docker-context:
+        description: 'Docker build context path'
+        required: false
+        type: string
+        default: '.'
+      docker-file:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: './Dockerfile'
+      docker-build-args:
+        description: 'Docker build arguments (newline-separated)'
+        required: false
+        type: string
+        default: ''
+
+      # GoReleaser options (when build-type is goreleaser)
+      goreleaser-version:
+        description: 'GoReleaser version to use'
+        required: false
+        type: string
+        default: 'latest'
+      goreleaser-args:
+        description: 'Additional GoReleaser arguments'
+        required: false
+        type: string
+        default: ''
+      goreleaser-config:
+        description: 'Path to GoReleaser configuration file'
+        required: false
+        type: string
+        default: '.goreleaser.yml'
+      go-version:
+        description: 'Go version for GoReleaser builds'
+        required: false
+        type: string
+        default: 'stable'
+
+      # Artifact configuration
+      artifact-pattern:
+        description: 'Glob pattern for release artifacts to upload'
+        required: false
+        type: string
+        default: ''
+      artifact-retention-days:
+        description: 'Number of days to retain artifacts'
+        required: false
+        type: number
+        default: 90
+
+      # Runner configuration
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+    secrets:
+      docker-registry-password:
+        description: 'Registry password for Docker builds (defaults to GITHUB_TOKEN for ghcr.io)'
+        required: false
+      goreleaser-token:
+        description: 'Token for GoReleaser (defaults to GITHUB_TOKEN)'
+        required: false
+      release-token:
+        description: 'Token for creating releases (defaults to GITHUB_TOKEN)'
+        required: false
+
+    outputs:
+      release-id:
+        description: 'The ID of the created release'
+        value: ${{ jobs.release.outputs.release-id }}
+      release-url:
+        description: 'The URL of the created release'
+        value: ${{ jobs.release.outputs.release-url }}
+      release-tag:
+        description: 'The tag name of the release'
+        value: ${{ jobs.release.outputs.release-tag }}
+      test-status:
+        description: 'Test result status: passed, failed, skipped'
+        value: ${{ jobs.test.outputs.status }}
+      build-status:
+        description: 'Build result status: success, failure, skipped'
+        value: ${{ jobs.build.outputs.status }}
+      docker-digest:
+        description: 'Docker image digest (when build-type is docker)'
+        value: ${{ jobs.build.outputs.docker-digest }}
+      docker-tags:
+        description: 'Docker image tags (when build-type is docker)'
+        value: ${{ jobs.build.outputs.docker-tags }}
+
+jobs:
+  # ===========================================================================
+  # Test Job
+  # ===========================================================================
+  test:
+    name: Test
+    if: ${{ inputs.run-tests }}
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      status: ${{ steps.test-result.outputs.status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Framework
+        id: detect
+        run: |
+          FRAMEWORK="${{ inputs.test-framework }}"
+
+          if [[ "$FRAMEWORK" == "auto" ]]; then
+            if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -f "requirements.txt" ]]; then
+              FRAMEWORK="pytest"
+            elif [[ -f "go.mod" ]]; then
+              FRAMEWORK="go"
+            elif [[ -f "bun.lockb" ]]; then
+              FRAMEWORK="bun"
+            elif [[ -f "package.json" ]]; then
+              FRAMEWORK="npm"
+            else
+              FRAMEWORK="custom"
+            fi
+          fi
+
+          echo "framework=$FRAMEWORK" >> $GITHUB_OUTPUT
+          echo "Detected framework: $FRAMEWORK"
+
+      - name: Set up Python
+        if: steps.detect.outputs.framework == 'pytest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Go
+        if: steps.detect.outputs.framework == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Set up Node.js
+        if: steps.detect.outputs.framework == 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up Bun
+        if: steps.detect.outputs.framework == 'bun'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Dependencies
+        run: |
+          FRAMEWORK="${{ steps.detect.outputs.framework }}"
+
+          if [[ "$FRAMEWORK" == "pytest" ]]; then
+            pip install -q pytest
+            if [[ -f "requirements.txt" ]]; then pip install -q -r requirements.txt; fi
+            if [[ -f "requirements-dev.txt" ]]; then pip install -q -r requirements-dev.txt; fi
+            if [[ -f "pyproject.toml" ]]; then pip install -q -e ".[dev,test]" 2>/dev/null || pip install -q -e . 2>/dev/null || true; fi
+          elif [[ "$FRAMEWORK" == "go" ]]; then
+            go mod download
+          elif [[ "$FRAMEWORK" == "npm" ]]; then
+            npm ci || npm install
+          elif [[ "$FRAMEWORK" == "bun" ]]; then
+            bun install
+          fi
+
+      - name: Run Tests
+        id: tests
+        continue-on-error: true
+        run: |
+          set +e
+          FRAMEWORK="${{ steps.detect.outputs.framework }}"
+          CUSTOM_COMMAND="${{ inputs.test-command }}"
+
+          if [[ -n "$CUSTOM_COMMAND" ]]; then
+            eval "$CUSTOM_COMMAND"
+            EXIT_CODE=$?
+          elif [[ "$FRAMEWORK" == "pytest" ]]; then
+            python -m pytest
+            EXIT_CODE=$?
+          elif [[ "$FRAMEWORK" == "go" ]]; then
+            go test ./...
+            EXIT_CODE=$?
+          elif [[ "$FRAMEWORK" == "npm" ]]; then
+            npm test
+            EXIT_CODE=$?
+          elif [[ "$FRAMEWORK" == "bun" ]]; then
+            bun test
+            EXIT_CODE=$?
+          else
+            echo "No test framework detected and no custom command provided"
+            EXIT_CODE=0
+          fi
+
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+      - name: Determine Test Result
+        id: test-result
+        run: |
+          EXIT_CODE="${{ steps.tests.outputs.exit_code }}"
+
+          if [[ "$EXIT_CODE" == "0" ]]; then
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "Tests passed"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "Tests failed with exit code $EXIT_CODE"
+
+            if [[ "${{ inputs.fail-on-test-failure }}" == "true" ]]; then
+              exit 1
+            fi
+          fi
+
+  # ===========================================================================
+  # Build Job
+  # ===========================================================================
+  build:
+    name: Build
+    needs: [test]
+    if: |
+      always() &&
+      inputs.build-type != 'none' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      status: ${{ steps.build-result.outputs.status }}
+      docker-digest: ${{ steps.docker-build.outputs.digest }}
+      docker-tags: ${{ steps.docker-build.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -----------------------------------------
+      # Docker Build
+      # -----------------------------------------
+      - name: Set up QEMU
+        if: inputs.build-type == 'docker'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ inputs.docker-platforms }}
+
+      - name: Set up Docker Buildx
+        if: inputs.build-type == 'docker'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: inputs.build-type == 'docker'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.docker-registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.docker-registry-password || github.token }}
+
+      - name: Docker Metadata
+        id: docker-meta
+        if: inputs.build-type == 'docker'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.docker-registry }}/${{ inputs.docker-image-name || github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and Push Docker Image
+        id: docker-build
+        if: inputs.build-type == 'docker'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.docker-context }}
+          file: ${{ inputs.docker-file }}
+          platforms: ${{ inputs.docker-platforms }}
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          build-args: ${{ inputs.docker-build-args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+
+      # -----------------------------------------
+      # GoReleaser Build
+      # -----------------------------------------
+      - name: Set up Go
+        if: inputs.build-type == 'goreleaser'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Run GoReleaser
+        id: goreleaser
+        if: inputs.build-type == 'goreleaser'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: ${{ inputs.goreleaser-version }}
+          args: release --clean ${{ inputs.goreleaser-args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.goreleaser-token || github.token }}
+          GORELEASER_CONFIG: ${{ inputs.goreleaser-config }}
+
+      # -----------------------------------------
+      # Custom Build
+      # -----------------------------------------
+      - name: Run Custom Build
+        id: custom-build
+        if: inputs.build-type == 'custom' && inputs.build-command != ''
+        run: |
+          echo "Running custom build command..."
+          eval "${{ inputs.build-command }}"
+
+      # -----------------------------------------
+      # Build Result
+      # -----------------------------------------
+      - name: Determine Build Result
+        id: build-result
+        if: always()
+        run: |
+          BUILD_TYPE="${{ inputs.build-type }}"
+
+          if [[ "$BUILD_TYPE" == "docker" ]]; then
+            if [[ -n "${{ steps.docker-build.outputs.digest }}" ]]; then
+              echo "status=success" >> $GITHUB_OUTPUT
+            else
+              echo "status=failure" >> $GITHUB_OUTPUT
+            fi
+          elif [[ "$BUILD_TYPE" == "goreleaser" ]]; then
+            if [[ "${{ steps.goreleaser.outcome }}" == "success" ]]; then
+              echo "status=success" >> $GITHUB_OUTPUT
+            else
+              echo "status=failure" >> $GITHUB_OUTPUT
+            fi
+          elif [[ "$BUILD_TYPE" == "custom" ]]; then
+            if [[ "${{ steps.custom-build.outcome }}" == "success" ]]; then
+              echo "status=success" >> $GITHUB_OUTPUT
+            else
+              echo "status=failure" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          fi
+
+  # ===========================================================================
+  # Release Job
+  # ===========================================================================
+  release:
+    name: Create Release
+    needs: [test, build]
+    if: |
+      always() &&
+      inputs.create-release &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+    outputs:
+      release-id: ${{ steps.create-release.outputs.id }}
+      release-url: ${{ steps.create-release.outputs.html_url }}
+      release-tag: ${{ steps.release-tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Release Tag
+        id: release-tag
+        run: |
+          TAG="${{ inputs.release-tag }}"
+
+          if [[ -z "$TAG" ]]; then
+            TAG="${{ github.ref_name }}"
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+
+      - name: Generate Release Notes
+        id: release-notes
+        run: |
+          CUSTOM_NOTES="${{ inputs.release-notes }}"
+          AUTO_GENERATE="${{ inputs.release-notes-auto }}"
+          TAG="${{ steps.release-tag.outputs.tag }}"
+
+          if [[ -n "$CUSTOM_NOTES" ]]; then
+            echo "Using custom release notes"
+            NOTES="$CUSTOM_NOTES"
+          elif [[ "$AUTO_GENERATE" == "true" ]]; then
+            echo "Auto-generating release notes"
+
+            # Get previous tag
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "Generating changelog from $PREV_TAG to $TAG"
+              NOTES=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD 2>/dev/null || echo "")
+            else
+              echo "No previous tag found, using recent commits"
+              NOTES=$(git log --pretty=format:"- %s (%h)" -20 2>/dev/null || echo "")
+            fi
+
+            # Categorize commits
+            FEATURES=$(echo "$NOTES" | grep -iE "^- (feat|feature)" || true)
+            FIXES=$(echo "$NOTES" | grep -iE "^- fix" || true)
+            OTHER=$(echo "$NOTES" | grep -viE "^- (feat|feature|fix)" || true)
+
+            FORMATTED_NOTES=""
+            if [[ -n "$FEATURES" ]]; then
+              FORMATTED_NOTES+="## Features\n$FEATURES\n\n"
+            fi
+            if [[ -n "$FIXES" ]]; then
+              FORMATTED_NOTES+="## Bug Fixes\n$FIXES\n\n"
+            fi
+            if [[ -n "$OTHER" ]]; then
+              FORMATTED_NOTES+="## Other Changes\n$OTHER\n\n"
+            fi
+
+            if [[ -z "$FORMATTED_NOTES" ]]; then
+              FORMATTED_NOTES="$NOTES"
+            fi
+
+            NOTES="$FORMATTED_NOTES"
+          else
+            NOTES=""
+          fi
+
+          # Write to file for gh release
+          echo -e "$NOTES" > /tmp/release-notes.md
+
+          echo "Release notes generated"
+
+      - name: Upload Release Artifacts
+        id: upload-artifacts
+        if: inputs.artifact-pattern != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: ${{ inputs.artifact-pattern }}
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: ignore
+
+      - name: Create GitHub Release
+        id: create-release
+        env:
+          GH_TOKEN: ${{ secrets.release-token || github.token }}
+        run: |
+          TAG="${{ steps.release-tag.outputs.tag }}"
+          NAME="${{ inputs.release-name }}"
+          DRAFT="${{ inputs.release-draft }}"
+          PRERELEASE="${{ inputs.release-prerelease }}"
+          LATEST="${{ inputs.release-latest }}"
+          ARTIFACT_PATTERN="${{ inputs.artifact-pattern }}"
+
+          # Build release name
+          if [[ -z "$NAME" ]]; then
+            NAME="$TAG"
+          fi
+
+          # Build gh release arguments
+          ARGS=("--title" "$NAME")
+
+          # Add notes file
+          ARGS+=("--notes-file" "/tmp/release-notes.md")
+
+          # Add flags
+          if [[ "$DRAFT" == "true" ]]; then
+            ARGS+=("--draft")
+          fi
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            ARGS+=("--prerelease")
+          fi
+
+          if [[ "$LATEST" == "false" ]]; then
+            ARGS+=("--latest=false")
+          elif [[ "$LATEST" == "legacy" ]]; then
+            # Don't set latest flag for legacy behavior
+            true
+          fi
+
+          # Create release
+          echo "Creating release for tag: $TAG"
+
+          RELEASE_OUTPUT=$(gh release create "$TAG" "${ARGS[@]}" 2>&1) || {
+            # Release might already exist, try to update it
+            echo "Release may already exist, attempting to update..."
+            RELEASE_OUTPUT=$(gh release edit "$TAG" --title "$NAME" --notes-file /tmp/release-notes.md 2>&1) || true
+          }
+
+          echo "$RELEASE_OUTPUT"
+
+          # Get release info
+          RELEASE_INFO=$(gh release view "$TAG" --json id,htmlUrl 2>/dev/null || echo '{}')
+          RELEASE_ID=$(echo "$RELEASE_INFO" | jq -r '.id // empty')
+          RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r '.htmlUrl // empty')
+
+          echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
+          echo "html_url=$RELEASE_URL" >> $GITHUB_OUTPUT
+
+          # Upload artifacts if pattern specified
+          if [[ -n "$ARTIFACT_PATTERN" ]]; then
+            echo "Uploading release artifacts..."
+            gh release upload "$TAG" $ARTIFACT_PATTERN --clobber 2>/dev/null || true
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Release Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          TEST_STATUS="${{ needs.test.outputs.status || 'skipped' }}"
+          BUILD_STATUS="${{ needs.build.outputs.status || 'skipped' }}"
+          RELEASE_URL="${{ steps.create-release.outputs.html_url }}"
+
+          if [[ -n "$RELEASE_URL" ]]; then
+            echo ":rocket: **Release Created Successfully**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":warning: **Release Pipeline Completed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Test status
+          if [[ "${{ inputs.run-tests }}" == "true" ]]; then
+            if [[ "$TEST_STATUS" == "passed" ]]; then
+              echo "| :test_tube: Tests | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            elif [[ "$TEST_STATUS" == "failed" ]]; then
+              echo "| :test_tube: Tests | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :test_tube: Tests | :grey_question: Unknown |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| :test_tube: Tests | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Build status
+          BUILD_TYPE="${{ inputs.build-type }}"
+          if [[ "$BUILD_TYPE" != "none" ]]; then
+            if [[ "$BUILD_STATUS" == "success" ]]; then
+              echo "| :hammer: Build ($BUILD_TYPE) | :white_check_mark: Success |" >> $GITHUB_STEP_SUMMARY
+            elif [[ "$BUILD_STATUS" == "failure" ]]; then
+              echo "| :hammer: Build ($BUILD_TYPE) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :hammer: Build ($BUILD_TYPE) | :grey_question: Unknown |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| :hammer: Build | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release status
+          if [[ "${{ inputs.create-release }}" == "true" ]]; then
+            if [[ -n "$RELEASE_URL" ]]; then
+              echo "| :package: Release | :white_check_mark: Created |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :package: Release | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| :package: Release | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Release Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`${{ steps.release-tag.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Draft | ${{ inputs.release-draft }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Prerelease | ${{ inputs.release-prerelease }} |" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "$RELEASE_URL" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo ":link: **[View Release]($RELEASE_URL)**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Docker details
+          if [[ "$BUILD_TYPE" == "docker" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Docker Build Details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Registry | \`${{ inputs.docker-registry }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Image | \`${{ inputs.docker-image-name || github.repository }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Platforms | \`${{ inputs.docker-platforms }}\` |" >> $GITHUB_STEP_SUMMARY
+
+            if [[ -n "${{ needs.build.outputs.docker-digest }}" ]]; then
+              echo "| Digest | \`${{ needs.build.outputs.docker-digest }}\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # GoReleaser details
+          if [[ "$BUILD_TYPE" == "goreleaser" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### GoReleaser Build Details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Version | \`${{ inputs.goreleaser-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Config | \`${{ inputs.goreleaser-config }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Go Version | \`${{ inputs.go-version }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
