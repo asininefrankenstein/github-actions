@@ -1,5 +1,5 @@
 name: Lint
-description: 'Multi-language linting reusable workflow supporting Python, Go, Shell, YAML, and Helm'
+# Multi-language linting reusable workflow supporting Python, Go, Shell, YAML, and Helm
 
 on:
   workflow_call:
@@ -188,7 +188,7 @@ jobs:
       - name: Run ShellCheck
         id: shell-lint
         if: inputs.shell
-        uses: ludeeus/action-shellcheck@master
+        uses: ludeeus/action-shellcheck@2.0.0
         continue-on-error: ${{ !inputs.fail-fast }}
         with:
           version: ${{ inputs.shellcheck-version }}
