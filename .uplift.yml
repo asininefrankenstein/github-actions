@@ -8,9 +8,6 @@ git:
 # Enable annotated tags for releases
 annotatedTags: true
 
-# First version for this repository
-firstVersion: v0.1.0
-
 # Changelog configuration
 changelog:
   sort: asc
