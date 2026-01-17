@@ -76,7 +76,7 @@ jobs:
       chart-ref: ${{ steps.chart-info.outputs.ref }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine chart path
         id: chart-path
