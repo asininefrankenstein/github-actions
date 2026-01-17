@@ -79,7 +79,7 @@ jobs:
       released: ${{ steps.check-release.outputs.released }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # CRITICAL: fetch-depth: 0 is required for Uplift to analyze full git history
           fetch-depth: 0
