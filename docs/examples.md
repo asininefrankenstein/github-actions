@@ -360,19 +360,18 @@ GoReleaser automatically creates:
 
 **File:** [`examples/example-docker-helm-release.yml`](examples/example-docker-helm-release.yml)
 
-A complete CI/CD pipeline for containerized applications with Helm charts. Builds multi-arch Docker images and publishes Helm charts to OCI registries.
+A complete CI/CD pipeline for containerized applications with Helm charts. Builds multi-arch Docker images, scans for vulnerabilities, publishes Helm charts, and creates GitHub releases.
 
 ### Pipeline Stages
 
 ```
-┌─────────┐    ┌─────────┐    ┌─────────────┐    ┌─────────┐    ┌─────────┐
-│  Lint   │───▶│  Test   │───▶│   Version   │───▶│ Docker  │───▶│  Helm   │
-│         │    │         │    │ (auto-tag)  │    │  Build  │    │ Publish │
-└─────────┘    └─────────┘    └─────────────┘    └─────────┘    └─────────┘
-     │              │               │                 │              │
-     ▼              ▼               ▼                 ▼              ▼
- YAML + Helm    App tests      Conventional     Multi-arch      OCI registry
-   linting                    Commits → tag    image push      chart push
+┌──────┐   ┌──────┐   ┌─────────┐   ┌────────┐   ┌──────┐   ┌──────┐   ┌─────────┐   ┌────────┐
+│ Lint │──▶│ Test │──▶│ Version │──▶│ Docker │──▶│ Scan │──▶│ Helm │──▶│ Release │──▶│ Notify │
+└──────┘   └──────┘   └─────────┘   └────────┘   └──────┘   └──────┘   └─────────┘   └────────┘
+    │          │           │             │           │          │           │            │
+    ▼          ▼           ▼             ▼           ▼          ▼           ▼            ▼
+ YAML +    App tests   auto-tag     Multi-arch   Trivy     OCI chart   GH Release   Renovate
+  Helm                 (uplift)     image push   CVE scan    push      w/artifacts   webhook
 ```
 
 ### Quick Start
@@ -390,12 +389,9 @@ jobs:
     with:
       yaml: true
       helm: true
-      helm-chart-path: 'charts/'
 
   test:
     uses: jacaudi/github-actions/.github/workflows/test.yml@main
-    with:
-      framework: auto
 
   version:
     needs: [lint, test]
@@ -403,32 +399,28 @@ jobs:
     uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
 
   docker:
-    needs: [lint, test, version]
+    needs: [version]
     if: needs.version.outputs.released == 'true'
     uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
     with:
       image-name: ${{ github.repository }}
-      platforms: 'linux/amd64,linux/arm64'
+
+  scan:
+    needs: [version, docker]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
+    with:
+      image-ref: ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
+      image-digest: ${{ needs.docker.outputs.digest }}
+      severity: 'CRITICAL,HIGH'
 
   helm:
-    needs: [lint, test, version, docker]
+    needs: [version, scan]
     if: needs.version.outputs.released == 'true'
     uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
     with:
       chart-name: myapp
       chart-path: 'charts/myapp'
-
-  # Optional: Trigger Renovate after release
-  notify:
-    needs: [version, helm]
-    if: needs.version.outputs.released == 'true'
-    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
-    with:
-      trigger-workflow: true
-      trigger-repo: myorg/renovate-config
-      trigger-workflow-id: renovate.yml
-    secrets:
-      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
 ```
 
 ### Requirements
@@ -439,11 +431,19 @@ jobs:
 
 ### Workflow Behavior
 
-| Event | Lint | Test | Version | Docker | Helm | Notify |
-|-------|------|------|---------|--------|------|--------|
-| Pull Request | :white_check_mark: | :white_check_mark: | :x: Skip | :x: Skip | :x: Skip | :x: Skip |
-| Push (no bump) | :white_check_mark: | :white_check_mark: | :white_check_mark: No tag | :x: Skip | :x: Skip | :x: Skip |
-| Push (feat/fix) | :white_check_mark: | :white_check_mark: | :white_check_mark: Tag | :white_check_mark: Push | :white_check_mark: Push | :bell: Trigger |
+| Event | Lint | Test | Version | Docker | Scan | Helm | Release | Notify |
+|-------|------|------|---------|--------|------|------|---------|--------|
+| Pull Request | :white_check_mark: | :white_check_mark: | :x: | :x: | :x: | :x: | :x: | :x: |
+| Push (no bump) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :x: | :x: | :x: | :x: | :x: |
+| Push (feat/fix) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :shield: | :white_check_mark: | :rocket: | :bell: |
+
+### GitHub Release Content
+
+The release job creates a GitHub Release containing:
+- Container image reference with tag and digest
+- Helm chart OCI reference
+- Security scan summary (critical/high counts)
+- Changelog from commits
 
 ### Configuration Options
 
