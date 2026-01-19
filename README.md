@@ -20,6 +20,7 @@ jobs:
   - Basic lint and test setup
   - Release on tag creation
   - Chaining uplift and release pipelines
+  - **Go SDK release pipeline** (lint, test, auto-tag, GoReleaser)
   - Full CI/CD pipeline patterns
 
 ## Workflows
@@ -503,6 +504,112 @@ permissions:
   contents: write
   packages: write  # Only for Docker builds
 ```
+
+---
+
+### GoReleaser Workflow
+
+Dedicated workflow for Go project releases using [GoReleaser](https://goreleaser.com). Builds multi-platform binaries and creates GitHub releases with changelogs.
+
+**Usage:**
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      go-version: 'stable'
+      goreleaser-version: 'latest'
+```
+
+**With Uplift (Recommended for Go SDKs):**
+
+```yaml
+name: Go SDK Release
+on:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      go: true
+
+  test:
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+    with:
+      framework: go
+      coverage: true
+
+  version:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+
+  release:
+    needs: [lint, test, version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      release-tag: ${{ needs.version.outputs.version }}
+```
+
+**Dry Run / Snapshot Mode:**
+
+```yaml
+jobs:
+  release:
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      dry-run: true   # Build but don't publish
+      # OR
+      snapshot: true  # Create snapshot build (no tag required)
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `go-version` | string | `'stable'` | Go version for building |
+| `goreleaser-version` | string | `'latest'` | GoReleaser version |
+| `goreleaser-config` | string | `'.goreleaser.yml'` | Config file path |
+| `goreleaser-args` | string | `''` | Additional GoReleaser arguments |
+| `release-tag` | string | `''` | Tag name (defaults to github.ref_name) |
+| `dry-run` | boolean | `false` | Skip publishing (test mode) |
+| `snapshot` | boolean | `false` | Create snapshot build |
+| `runs-on` | string | `'ubuntu-latest'` | Runner label |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `github-token` | No | Token for releases (defaults to GITHUB_TOKEN) |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `release-url` | URL of the created release |
+| `release-tag` | Tag name of the release |
+| `version` | Released version (without v prefix) |
+| `artifacts` | JSON array of built artifacts |
+| `metadata` | GoReleaser metadata JSON |
+
+**Required Permissions:**
+
+```yaml
+permissions:
+  contents: write
+  packages: write
+```
+
+> **Note:** For Go SDK releases, use the dedicated `goreleaser.yml` workflow instead of `release.yml` with `build-type: goreleaser`. This avoids conflicts between GoReleaser's release creation and the release workflow's release creation.
 
 ---
 

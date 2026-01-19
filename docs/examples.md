@@ -235,16 +235,10 @@ jobs:
   release:
     needs: [lint, test, version]
     if: needs.version.outputs.released == 'true'
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
     with:
       release-tag: ${{ needs.version.outputs.version }}
-      run-tests: false
-      build-type: goreleaser
       go-version: 'stable'
-      goreleaser-version: 'latest'
-      create-release: true
-    secrets:
-      goreleaser-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Requirements
@@ -327,15 +321,17 @@ changelog:
 | `coverage-threshold` | `0` | Minimum coverage percentage |
 | `test-command` | `''` | Custom test command |
 
-#### Release Job (GoReleaser)
+#### Release Job (goreleaser.yml)
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `build-type` | `none` | Set to `goreleaser` |
+| `release-tag` | `github.ref_name` | Tag name for the release |
 | `go-version` | `stable` | Go version for builds |
 | `goreleaser-version` | `latest` | GoReleaser version |
 | `goreleaser-config` | `.goreleaser.yml` | Config file path |
 | `goreleaser-args` | `''` | Additional GoReleaser args |
+| `dry-run` | `false` | Skip publishing (test mode) |
+| `snapshot` | `false` | Create snapshot build |
 
 ### Release Artifacts
 

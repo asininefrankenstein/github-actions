@@ -76,29 +76,17 @@ jobs:
     needs: [lint, test, version]
     # Only run if a new version was created
     if: needs.version.outputs.released == 'true'
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
     with:
       # Use the version tag from uplift
       release-tag: ${{ needs.version.outputs.version }}
 
-      # Skip tests - already ran in test job
-      run-tests: false
-
-      # Release configuration
-      create-release: true
-      release-notes-auto: true
-      release-draft: false
-      release-prerelease: ${{ contains(needs.version.outputs.version, '-') }}
-
-      # GoReleaser build configuration
-      build-type: goreleaser
+      # Go and GoReleaser configuration
       go-version: 'stable'
       goreleaser-version: 'latest'
       goreleaser-config: '.goreleaser.yml'
-      # goreleaser-args: '--skip=validate'  # Optional: additional args
-
-    secrets:
-      goreleaser-token: ${{ secrets.GITHUB_TOKEN }}
+      # goreleaser-args: ''  # Optional: additional args
+      # dry-run: false       # Set to true to test without publishing
 
   # ===========================================================================
   # Pipeline Summary
