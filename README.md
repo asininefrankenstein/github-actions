@@ -14,6 +14,14 @@ jobs:
       python: true
 ```
 
+## Documentation
+
+- **[Example Workflows](docs/examples.md)** - Copy-and-paste examples for common use cases including:
+  - Basic lint and test setup
+  - Release on tag creation
+  - Chaining uplift and release pipelines
+  - Full CI/CD pipeline patterns
+
 ## Workflows
 
 ### Lint Workflow
