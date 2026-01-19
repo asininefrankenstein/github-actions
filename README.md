@@ -700,6 +700,89 @@ jobs:
 
 ---
 
+### Image Scan Workflow
+
+Container image security scanning using [Trivy](https://trivy.dev). Detects vulnerabilities, secrets, and misconfigurations.
+
+**Usage:**
+
+```yaml
+name: Scan
+on:
+  push:
+
+jobs:
+  build:
+    uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
+    with:
+      image-name: myapp
+
+  scan:
+    needs: build
+    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
+    with:
+      image-ref: ghcr.io/${{ github.repository }}:latest
+      image-digest: ${{ needs.build.outputs.digest }}
+      severity: 'CRITICAL,HIGH'
+      upload-sarif: true
+```
+
+**Report Only (Don't Fail):**
+
+```yaml
+jobs:
+  scan:
+    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
+    with:
+      image-ref: ghcr.io/myorg/myapp:v1.0.0
+      exit-code: 0  # Don't fail on vulnerabilities
+      severity: 'CRITICAL,HIGH,MEDIUM'
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `image-ref` | string | **required** | Image reference to scan |
+| `image-digest` | string | `''` | Image digest for precise scanning |
+| `severity` | string | `'CRITICAL,HIGH'` | Severity levels to scan |
+| `ignore-unfixed` | boolean | `false` | Ignore vulnerabilities without fixes |
+| `exit-code` | number | `1` | Exit code when vulnerabilities found (0 = don't fail) |
+| `timeout` | string | `'10m'` | Scan timeout |
+| `upload-sarif` | boolean | `true` | Upload to GitHub Security tab |
+| `upload-artifact` | boolean | `true` | Upload scan results as artifact |
+| `trivy-version` | string | `'latest'` | Trivy version |
+| `vuln-type` | string | `'os,library'` | Vulnerability types |
+| `scanners` | string | `'vuln,secret'` | Scanners to use |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `registry-username` | No | Username for private registries |
+| `registry-password` | No | Password for private registries |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `vulnerabilities-found` | Whether vulnerabilities were found |
+| `critical-count` | Number of critical vulnerabilities |
+| `high-count` | Number of high vulnerabilities |
+| `medium-count` | Number of medium vulnerabilities |
+| `low-count` | Number of low vulnerabilities |
+| `scan-status` | Scan status: passed, failed, error |
+
+**Required Permissions:**
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # For SARIF upload
+```
+
+---
+
 ## Composite Actions
 
 ### Docker Build Action
