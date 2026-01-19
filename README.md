@@ -614,6 +614,92 @@ permissions:
 
 ---
 
+### Webhook Workflow
+
+Trigger webhooks or GitHub workflows after releases. Common use case: trigger [Renovate](https://docs.renovatebot.com/) to update dependencies across repositories.
+
+**Usage - HTTP Webhook:**
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    # ... release job ...
+
+  notify:
+    needs: release
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      webhook-method: 'POST'
+    secrets:
+      webhook-url: ${{ secrets.RENOVATE_WEBHOOK_URL }}
+      webhook-token: ${{ secrets.RENOVATE_WEBHOOK_TOKEN }}
+```
+
+**Usage - Trigger GitHub Workflow (Renovate):**
+
+```yaml
+jobs:
+  notify:
+    needs: release
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      trigger-workflow: true
+      trigger-repo: 'myorg/renovate-config'
+      trigger-workflow-id: 'renovate.yml'
+      trigger-ref: 'main'
+      release-tag: ${{ needs.release.outputs.release-tag }}
+    secrets:
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| **HTTP Webhook** |
+| `webhook-url` | string | `''` | Webhook URL (prefer using secret) |
+| `webhook-method` | string | `'POST'` | HTTP method: POST, GET, PUT |
+| `webhook-payload` | string | `''` | Custom JSON payload |
+| `webhook-headers` | string | `'{}'` | Additional headers as JSON |
+| `webhook-content-type` | string | `'application/json'` | Content-Type header |
+| **GitHub Workflow Trigger** |
+| `trigger-workflow` | boolean | `false` | Enable workflow_dispatch trigger |
+| `trigger-repo` | string | `''` | Target repository (owner/repo) |
+| `trigger-workflow-id` | string | `''` | Workflow filename or ID |
+| `trigger-ref` | string | `'main'` | Git ref for the trigger |
+| `trigger-inputs` | string | `'{}'` | Workflow inputs as JSON |
+| **Context** |
+| `release-tag` | string | `''` | Release tag for context |
+| `release-url` | string | `''` | Release URL for context |
+| **Behavior** |
+| `fail-on-error` | boolean | `false` | Fail if webhook fails |
+| `retry-count` | number | `3` | Retry attempts |
+| `retry-delay` | number | `5` | Seconds between retries |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `webhook-url` | No | Webhook URL (secret, preferred over input) |
+| `webhook-token` | No | Bearer token for authentication |
+| `github-token` | No | Token for workflow_dispatch (needs workflow scope) |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `status` | Result: success, failure, skipped |
+| `response-code` | HTTP response code |
+
+> **Renovate Integration:** To trigger Renovate after releases, you can either call a self-hosted [Renovate server webhook](https://github.com/stack11/renovate-server) or trigger a workflow_dispatch on a repository running Renovate. See [Mend Renovate docs](https://docs.mend.io/wsk/renovate-ee-job-processing-in-renovate) for more options.
+
+---
+
 ## Composite Actions
 
 ### Docker Build Action

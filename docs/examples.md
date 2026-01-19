@@ -240,6 +240,18 @@ jobs:
     with:
       release-tag: ${{ needs.version.outputs.version }}
       go-version: 'stable'
+
+  # Optional: Trigger Renovate after release
+  notify:
+    needs: [version, release]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      trigger-workflow: true
+      trigger-repo: myorg/renovate-config
+      trigger-workflow-id: renovate.yml
+    secrets:
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
 ```
 
 ### Requirements
@@ -405,6 +417,18 @@ jobs:
     with:
       chart-name: myapp
       chart-path: 'charts/myapp'
+
+  # Optional: Trigger Renovate after release
+  notify:
+    needs: [version, helm]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      trigger-workflow: true
+      trigger-repo: myorg/renovate-config
+      trigger-workflow-id: renovate.yml
+    secrets:
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
 ```
 
 ### Requirements
@@ -415,11 +439,11 @@ jobs:
 
 ### Workflow Behavior
 
-| Event | Lint | Test | Version | Docker | Helm |
-|-------|------|------|---------|--------|------|
-| Pull Request | :white_check_mark: | :white_check_mark: | :x: Skipped | :x: Skipped | :x: Skipped |
-| Push to main (no bump) | :white_check_mark: | :white_check_mark: | :white_check_mark: No tag | :x: Skipped | :x: Skipped |
-| Push to main (feat/fix) | :white_check_mark: | :white_check_mark: | :white_check_mark: New tag | :white_check_mark: Push | :white_check_mark: Push |
+| Event | Lint | Test | Version | Docker | Helm | Notify |
+|-------|------|------|---------|--------|------|--------|
+| Pull Request | :white_check_mark: | :white_check_mark: | :x: Skip | :x: Skip | :x: Skip | :x: Skip |
+| Push (no bump) | :white_check_mark: | :white_check_mark: | :white_check_mark: No tag | :x: Skip | :x: Skip | :x: Skip |
+| Push (feat/fix) | :white_check_mark: | :white_check_mark: | :white_check_mark: Tag | :white_check_mark: Push | :white_check_mark: Push | :bell: Trigger |
 
 ### Configuration Options
 

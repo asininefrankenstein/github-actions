@@ -6,6 +6,7 @@ name: Go SDK Release Pipeline
 # 2. Test - Run go test with coverage
 # 3. Version - Auto-tag based on Conventional Commits (main branch only)
 # 4. Release - Build multi-platform binaries with GoReleaser and create GitHub release
+# 5. Notify - Trigger webhook (e.g., Renovate) after successful release
 #
 # Requirements:
 # - Go module (go.mod in repository root)
@@ -89,11 +90,40 @@ jobs:
       # dry-run: false       # Set to true to test without publishing
 
   # ===========================================================================
+  # Stage 5: Notify (trigger webhook after release)
+  # ===========================================================================
+  notify:
+    name: Notify
+    needs: [lint, test, version, release]
+    # Only run after successful release
+    if: needs.version.outputs.released == 'true' && needs.release.result == 'success'
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      # Option 1: HTTP webhook (e.g., self-hosted Renovate server)
+      # webhook-url: 'https://renovate.example.com/webhook'
+
+      # Option 2: Trigger GitHub workflow (e.g., Renovate workflow in another repo)
+      trigger-workflow: true
+      trigger-repo: ${{ github.repository_owner }}/renovate-config  # Change to your Renovate repo
+      trigger-workflow-id: 'renovate.yml'
+      trigger-ref: 'main'
+
+      # Pass release context
+      release-tag: ${{ needs.version.outputs.version }}
+      release-url: ${{ needs.release.outputs.release-url }}
+    secrets:
+      # For HTTP webhook authentication:
+      # webhook-token: ${{ secrets.RENOVATE_WEBHOOK_TOKEN }}
+
+      # For GitHub workflow_dispatch (needs workflow scope):
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+
+  # ===========================================================================
   # Pipeline Summary
   # ===========================================================================
   summary:
     name: Summary
-    needs: [lint, test, version, release]
+    needs: [lint, test, version, release, notify]
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'push'
     steps:
@@ -141,6 +171,15 @@ jobs:
             echo "| Release | :rocket: [Published](${RELEASE_URL}) |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Release | :x: ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Notify
+          if [[ "${{ needs.notify.result }}" == "skipped" ]]; then
+            echo "| Notify | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.notify.result }}" == "success" ]]; then
+            echo "| Notify | :bell: Triggered |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Notify | :warning: ${{ needs.notify.result }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Release details
