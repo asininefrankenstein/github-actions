@@ -16,13 +16,15 @@ jobs:
 
 ## Documentation
 
-- **[Example Workflows](docs/examples.md)** - Copy-and-paste examples for common use cases including:
+- **[Workflow Templates](docs/templates.md)** - Copy-and-paste templates for common use cases including:
   - Basic lint and test setup
   - Release on tag creation
   - Chaining uplift and release pipelines
   - **Go SDK release pipeline** (lint, test, auto-tag, GoReleaser)
   - **Docker + Helm release pipeline** (container images + OCI Helm charts)
+  - **Self-release pipeline** (for workflows-only repositories)
   - Full CI/CD pipeline patterns
+- **[`templates/`](templates/)** - Ready-to-use workflow files you can copy directly
 
 ## Workflows
 

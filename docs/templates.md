@@ -1,23 +1,23 @@
-# Example Workflows
+# Workflow Templates
 
-This directory contains example workflows demonstrating how to use the reusable workflows in this repository. Copy and adapt these examples for your own projects.
+This document describes the workflow templates available in the [`templates/`](../templates/) directory. Copy and adapt these templates for your own projects.
 
-## Available Examples
+## Available Templates
 
-| Example | Description |
-|---------|-------------|
-| [example-caller.yml](examples/example-caller.yml) | Basic usage of lint and test workflows |
-| [example-release-on-tag.yml](examples/example-release-on-tag.yml) | Trigger release pipeline on tag creation |
-| [example-uplift-release.yml](examples/example-uplift-release.yml) | Chain uplift and release in one workflow |
-| [example-go-sdk-release.yml](examples/example-go-sdk-release.yml) | **Complete Go SDK/library release pipeline** |
-| [example-docker-helm-release.yml](examples/example-docker-helm-release.yml) | **Docker + Helm chart release pipeline** |
-| [example-self-release.yml](examples/example-self-release.yml) | **Self-release for workflows repositories** |
+| Template | Description |
+|----------|-------------|
+| [example-caller.yml](../templates/example-caller.yml) | Basic usage of lint and test workflows |
+| [example-release-on-tag.yml](../templates/example-release-on-tag.yml) | Trigger release pipeline on tag creation |
+| [example-uplift-release.yml](../templates/example-uplift-release.yml) | Chain uplift and release in one workflow |
+| [example-go-sdk-release.yml](../templates/example-go-sdk-release.yml) | **Complete Go SDK/library release pipeline** |
+| [example-docker-helm-release.yml](../templates/example-docker-helm-release.yml) | **Docker + Helm chart release pipeline** |
+| [example-self-release.yml](../templates/example-self-release.yml) | **Self-release for workflows repositories** |
 
 ---
 
 ## Example: Basic Lint and Test
 
-**File:** [`examples/example-caller.yml`](examples/example-caller.yml)
+**File:** [`templates/example-caller.yml`](../templates/example-caller.yml)
 
 Demonstrates calling the lint and test workflows with manual trigger support.
 
@@ -46,7 +46,7 @@ jobs:
 
 ## Example: Release on Tag Creation
 
-**File:** [`examples/example-release-on-tag.yml`](examples/example-release-on-tag.yml)
+**File:** [`templates/example-release-on-tag.yml`](../templates/example-release-on-tag.yml)
 
 Triggers the release pipeline when a semantic version tag is pushed (e.g., `v1.0.0`).
 
@@ -80,7 +80,7 @@ To trigger this workflow from uplift-created tags, you must either:
 
 ## Example: Uplift with Release Pipeline (Recommended)
 
-**File:** [`examples/example-uplift-release.yml`](examples/example-uplift-release.yml)
+**File:** [`templates/example-uplift-release.yml`](../templates/example-uplift-release.yml)
 
 The **recommended approach** for automated releases. Chains uplift (auto-tagging) with the release pipeline in a single workflow.
 
@@ -190,7 +190,7 @@ jobs:
 
 ## Go SDK/Library Release Pipeline
 
-**File:** [`examples/example-go-sdk-release.yml`](examples/example-go-sdk-release.yml)
+**File:** [`templates/example-go-sdk-release.yml`](../templates/example-go-sdk-release.yml)
 
 A complete CI/CD pipeline for Go SDK or library releases with linting, testing, auto-tagging, and multi-platform binary builds via GoReleaser.
 
@@ -359,7 +359,7 @@ GoReleaser automatically creates:
 
 ## Docker + Helm Chart Release Pipeline
 
-**File:** [`examples/example-docker-helm-release.yml`](examples/example-docker-helm-release.yml)
+**File:** [`templates/example-docker-helm-release.yml`](../templates/example-docker-helm-release.yml)
 
 A complete CI/CD pipeline for containerized applications with Helm charts. Builds multi-arch Docker images, scans for vulnerabilities, publishes Helm charts, and creates GitHub releases.
 
@@ -548,7 +548,7 @@ helm install my-release oci://ghcr.io/myorg/myapp --version 1.0.0 \
 
 ## Self-Release Pipeline (Workflows Repository)
 
-**File:** [`examples/example-self-release.yml`](examples/example-self-release.yml)
+**File:** [`templates/example-self-release.yml`](../templates/example-self-release.yml)
 
 A lightweight CI/CD pipeline for repositories that contain only reusable GitHub Actions workflows. This pattern is what this repository uses to release itself ("dogfooding").
 
