@@ -14,17 +14,18 @@ jobs:
       python: true
 ```
 
-## Documentation
+## Example Pipelines
 
-- **[Workflow Templates](docs/templates.md)** - Copy-and-paste templates for common use cases including:
-  - Basic lint and test setup
-  - Release on tag creation
-  - Chaining uplift and release pipelines
-  - **Go SDK release pipeline** (lint, test, auto-tag, GoReleaser)
-  - **Docker + Helm release pipeline** (container images + OCI Helm charts)
-  - **Self-release pipeline** (for workflows-only repositories)
-  - Full CI/CD pipeline patterns
-- **[`templates/`](templates/)** - Ready-to-use workflow files you can copy directly
+| Example | Description |
+|---------|-------------|
+| [Basic CI](docs/example-caller.yml) | Lint and test on push/PR. |
+| [Release on Tag](docs/example-release-on-tag.yml) | Create GitHub Release when a version tag is pushed. |
+| [Uplift + Release](docs/example-uplift-release.yml) | Auto-tag from commits and release in one workflow. |
+| [Go SDK](docs/example-go-sdk-release.yml) | Full pipeline: lint, test, auto-tag, GoReleaser multi-platform builds. |
+| [Docker + Helm](docs/example-docker-helm-release.yml) | Build container, scan, publish Helm chart, create release. |
+| [Self-Release](docs/example-self-release.yml) | CI/CD for workflow-only repos like this one. |
+
+See [docs/templates.md](docs/templates.md) for detailed documentation.
 
 ## Workflows
 
