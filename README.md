@@ -25,7 +25,7 @@ jobs:
 | [Docker + Helm](docs/example-docker-helm-release.yml) | Build container, scan, publish Helm chart, create release. |
 | [Self-Release](docs/example-self-release.yml) | CI/CD for workflow-only repos like this one. |
 
-See [docs/templates.md](docs/templates.md) for detailed documentation.
+See [docs/examples.md](docs/examples.md) for detailed documentation.
 
 ## Workflows
 
