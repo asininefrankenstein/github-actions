@@ -21,6 +21,7 @@ jobs:
   - Release on tag creation
   - Chaining uplift and release pipelines
   - **Go SDK release pipeline** (lint, test, auto-tag, GoReleaser)
+  - **Docker + Helm release pipeline** (container images + OCI Helm charts)
   - Full CI/CD pipeline patterns
 
 ## Workflows

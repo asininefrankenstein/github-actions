@@ -10,6 +10,7 @@ This directory contains example workflows demonstrating how to use the reusable 
 | [example-release-on-tag.yml](examples/example-release-on-tag.yml) | Trigger release pipeline on tag creation |
 | [example-uplift-release.yml](examples/example-uplift-release.yml) | Chain uplift and release in one workflow |
 | [example-go-sdk-release.yml](examples/example-go-sdk-release.yml) | **Complete Go SDK/library release pipeline** |
+| [example-docker-helm-release.yml](examples/example-docker-helm-release.yml) | **Docker + Helm chart release pipeline** |
 
 ---
 
@@ -340,3 +341,180 @@ GoReleaser automatically creates:
 - Compressed archives (`.tar.gz`, `.zip` for Windows)
 - Checksums file
 - GitHub Release with changelog
+
+---
+
+## Docker + Helm Chart Release Pipeline
+
+**File:** [`examples/example-docker-helm-release.yml`](examples/example-docker-helm-release.yml)
+
+A complete CI/CD pipeline for containerized applications with Helm charts. Builds multi-arch Docker images and publishes Helm charts to OCI registries.
+
+### Pipeline Stages
+
+```
+┌─────────┐    ┌─────────┐    ┌─────────────┐    ┌─────────┐    ┌─────────┐
+│  Lint   │───▶│  Test   │───▶│   Version   │───▶│ Docker  │───▶│  Helm   │
+│         │    │         │    │ (auto-tag)  │    │  Build  │    │ Publish │
+└─────────┘    └─────────┘    └─────────────┘    └─────────┘    └─────────┘
+     │              │               │                 │              │
+     ▼              ▼               ▼                 ▼              ▼
+ YAML + Helm    App tests      Conventional     Multi-arch      OCI registry
+   linting                    Commits → tag    image push      chart push
+```
+
+### Quick Start
+
+```yaml
+name: Release
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      yaml: true
+      helm: true
+      helm-chart-path: 'charts/'
+
+  test:
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+    with:
+      framework: auto
+
+  version:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+
+  docker:
+    needs: [lint, test, version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
+    with:
+      image-name: ${{ github.repository }}
+      platforms: 'linux/amd64,linux/arm64'
+
+  helm:
+    needs: [lint, test, version, docker]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
+    with:
+      chart-name: myapp
+      chart-path: 'charts/myapp'
+```
+
+### Requirements
+
+1. **Dockerfile** - In repository root (or specify path)
+2. **Helm chart** - In `charts/<chart-name>/` directory
+3. **Conventional Commits** - Use commit prefixes for auto-versioning
+
+### Workflow Behavior
+
+| Event | Lint | Test | Version | Docker | Helm |
+|-------|------|------|---------|--------|------|
+| Pull Request | :white_check_mark: | :white_check_mark: | :x: Skipped | :x: Skipped | :x: Skipped |
+| Push to main (no bump) | :white_check_mark: | :white_check_mark: | :white_check_mark: No tag | :x: Skipped | :x: Skipped |
+| Push to main (feat/fix) | :white_check_mark: | :white_check_mark: | :white_check_mark: New tag | :white_check_mark: Push | :white_check_mark: Push |
+
+### Configuration Options
+
+#### Docker Job (docker-build.yml)
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `image-name` | `github.repository` | Docker image name |
+| `platforms` | `linux/amd64,linux/arm64` | Target platforms |
+| `registry` | `ghcr.io` | Container registry |
+| `push` | `true` | Push image to registry |
+| `file` | `./Dockerfile` | Dockerfile path |
+| `context` | `.` | Build context |
+
+#### Helm Job (helm-publish.yml)
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `chart-name` | *required* | Helm chart name |
+| `chart-path` | `charts/<chart-name>` | Path to chart directory |
+| `registry` | `ghcr.io` | OCI registry |
+| `lint` | `true` | Run helm lint |
+| `update-dependencies` | `true` | Run helm dependency update |
+
+### Variant: Docker Only
+
+For projects that only need container images (no Helm chart):
+
+```yaml
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      yaml: true
+
+  test:
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+
+  version:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+
+  docker:
+    needs: [version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
+    with:
+      image-name: ${{ github.repository }}
+```
+
+### Variant: Helm Only
+
+For projects that only need Helm chart publishing (image built elsewhere):
+
+```yaml
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      helm: true
+      helm-chart-path: 'charts/'
+
+  version:
+    needs: [lint]
+    if: github.ref == 'refs/heads/main'
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+
+  helm:
+    needs: [version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
+    with:
+      chart-name: myapp
+      chart-path: 'charts/myapp'
+```
+
+### Release Artifacts
+
+| Artifact | Location |
+|----------|----------|
+| Docker Image | `ghcr.io/<owner>/<repo>:<version>` |
+| Helm Chart | `oci://ghcr.io/<owner>/<chart-name>:<version>` |
+
+### Installing the Helm Chart
+
+```bash
+# Pull the chart
+helm pull oci://ghcr.io/myorg/myapp --version 1.0.0
+
+# Install the chart
+helm install my-release oci://ghcr.io/myorg/myapp --version 1.0.0
+
+# Install with custom values
+helm install my-release oci://ghcr.io/myorg/myapp --version 1.0.0 \
+  --set image.tag=1.0.0 \
+  --set replicaCount=3
+```

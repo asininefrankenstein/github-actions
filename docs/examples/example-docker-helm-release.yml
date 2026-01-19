@@ -1,0 +1,179 @@
+name: Docker + Helm Release Pipeline
+# Complete release pipeline for containerized applications with Helm charts
+#
+# Pipeline stages:
+# 1. Lint - Lint Dockerfile, Helm chart, and application code
+# 2. Test - Run application tests
+# 3. Version - Auto-tag based on Conventional Commits (main branch only)
+# 4. Docker - Build and push multi-arch container image
+# 5. Helm - Publish Helm chart to OCI registry
+#
+# Requirements:
+# - Dockerfile in repository root (or specify path)
+# - Helm chart in charts/<chart-name>/ directory
+# - Conventional Commits for automatic versioning
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  # Configure these for your project
+  IMAGE_NAME: ${{ github.repository }}
+  CHART_NAME: myapp  # Change to your chart name
+  CHART_PATH: charts/myapp  # Change to your chart path
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Lint
+  # ===========================================================================
+  lint:
+    name: Lint
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      # Enable linters as needed for your project
+      yaml: true
+      helm: true
+      helm-chart-path: 'charts/'
+      # python: true  # Uncomment if Python project
+      # go: true      # Uncomment if Go project
+
+  # ===========================================================================
+  # Stage 2: Test
+  # ===========================================================================
+  test:
+    name: Test
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+    with:
+      framework: auto
+      coverage: true
+      # coverage-threshold: 70
+
+  # ===========================================================================
+  # Stage 3: Version (auto-tag on main branch)
+  # ===========================================================================
+  version:
+    name: Version
+    needs: [lint, test]
+    # Only run on main branch pushes, not PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    with:
+      dry-run: false
+
+  # ===========================================================================
+  # Stage 4: Docker Build (when new version is tagged)
+  # ===========================================================================
+  docker:
+    name: Docker
+    needs: [lint, test, version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
+    with:
+      image-name: ${{ github.repository }}
+      platforms: 'linux/amd64,linux/arm64'
+      push: true
+      # Optional: customize Dockerfile location
+      # file: './Dockerfile'
+      # context: '.'
+
+  # ===========================================================================
+  # Stage 5: Helm Publish (after Docker build succeeds)
+  # ===========================================================================
+  helm:
+    name: Helm
+    needs: [lint, test, version, docker]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
+    with:
+      chart-name: myapp  # Change to your chart name
+      chart-path: 'charts/myapp'  # Change to your chart path
+      # Version is extracted from tag automatically
+      # registry: 'ghcr.io'  # Default
+
+  # ===========================================================================
+  # Pipeline Summary
+  # ===========================================================================
+  summary:
+    name: Summary
+    needs: [lint, test, version, docker, helm]
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'push'
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "## Docker + Helm Release Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Stage results
+          echo "### Pipeline Stages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Lint
+          if [[ "${{ needs.lint.result }}" == "success" ]]; then
+            echo "| Lint | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Lint | :x: ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Test
+          if [[ "${{ needs.test.result }}" == "success" ]]; then
+            echo "| Test | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Test | :x: ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Version
+          RELEASED="${{ needs.version.outputs.released }}"
+          VERSION="${{ needs.version.outputs.version }}"
+          if [[ "${{ needs.version.result }}" == "skipped" ]]; then
+            echo "| Version | :fast_forward: Skipped (PR) |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$RELEASED" == "true" ]]; then
+            echo "| Version | :label: ${VERSION} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Version | :information_source: No bump needed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Docker
+          if [[ "${{ needs.docker.result }}" == "skipped" ]]; then
+            echo "| Docker | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.docker.result }}" == "success" ]]; then
+            echo "| Docker | :white_check_mark: Published |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Docker | :x: ${{ needs.docker.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Helm
+          if [[ "${{ needs.helm.result }}" == "skipped" ]]; then
+            echo "| Helm | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.helm.result }}" == "success" ]]; then
+            echo "| Helm | :white_check_mark: Published |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Helm | :x: ${{ needs.helm.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release details
+          if [[ "$RELEASED" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Release Artifacts" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Artifact | Location |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Version | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+
+            if [[ "${{ needs.docker.result }}" == "success" ]]; then
+              echo "| Docker Image | \`ghcr.io/${{ github.repository }}:${VERSION#v}\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            if [[ "${{ needs.helm.result }}" == "success" ]]; then
+              echo "| Helm Chart | \`oci://ghcr.io/${{ github.repository_owner }}/myapp:${VERSION#v}\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
