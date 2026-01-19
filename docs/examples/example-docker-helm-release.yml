@@ -7,6 +7,7 @@ name: Docker + Helm Release Pipeline
 # 3. Version - Auto-tag based on Conventional Commits (main branch only)
 # 4. Docker - Build and push multi-arch container image
 # 5. Helm - Publish Helm chart to OCI registry
+# 6. Notify - Trigger webhook (e.g., Renovate) after successful release
 #
 # Requirements:
 # - Dockerfile in repository root (or specify path)
@@ -98,11 +99,35 @@ jobs:
       # registry: 'ghcr.io'  # Default
 
   # ===========================================================================
+  # Stage 6: Notify (trigger webhook after release)
+  # ===========================================================================
+  notify:
+    name: Notify
+    needs: [lint, test, version, docker, helm]
+    # Only run after successful release
+    if: needs.version.outputs.released == 'true' && needs.helm.result == 'success'
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      # Option 1: HTTP webhook (e.g., self-hosted Renovate server)
+      # webhook-url: 'https://renovate.example.com/webhook'
+
+      # Option 2: Trigger GitHub workflow (e.g., Renovate workflow)
+      trigger-workflow: true
+      trigger-repo: ${{ github.repository_owner }}/renovate-config  # Change to your Renovate repo
+      trigger-workflow-id: 'renovate.yml'
+      trigger-ref: 'main'
+
+      # Pass release context
+      release-tag: ${{ needs.version.outputs.version }}
+    secrets:
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+
+  # ===========================================================================
   # Pipeline Summary
   # ===========================================================================
   summary:
     name: Summary
-    needs: [lint, test, version, docker, helm]
+    needs: [lint, test, version, docker, helm, notify]
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'push'
     steps:
@@ -158,6 +183,15 @@ jobs:
             echo "| Helm | :white_check_mark: Published |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Helm | :x: ${{ needs.helm.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Notify
+          if [[ "${{ needs.notify.result }}" == "skipped" ]]; then
+            echo "| Notify | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.notify.result }}" == "success" ]]; then
+            echo "| Notify | :bell: Triggered |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Notify | :warning: ${{ needs.notify.result }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Release details
