@@ -1,0 +1,104 @@
+name: Example - Uplift with Release Pipeline
+# Example workflow demonstrating how to chain uplift (auto-tagging) with the
+# release pipeline in a single workflow.
+#
+# This is the RECOMMENDED approach because:
+# 1. Tags created by GITHUB_TOKEN don't trigger other workflows
+# 2. Chaining jobs in one workflow avoids this limitation
+# 3. You get a complete CI/CD pipeline: commit → tag → release
+#
+# Alternative approach: Use a GitHub App token with uplift so created tags
+# trigger a separate "on: push: tags:" workflow. See the uplift.yml comments
+# for GitHub App configuration details.
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Run in dry-run mode (no tags created)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # Step 1: Run uplift to analyze commits and create version tag
+  uplift:
+    name: Version
+    uses: ./.github/workflows/uplift.yml
+    with:
+      dry-run: ${{ github.event.inputs.dry-run || false }}
+      # Uncomment to use GitHub App (enables triggering other workflows):
+      # use-github-app: true
+    # secrets:
+    #   app-id: ${{ secrets.APP_ID }}
+    #   app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # Step 2: Run release pipeline if a new version was created
+  release:
+    name: Release
+    needs: uplift
+    if: ${{ needs.uplift.outputs.released == 'true' }}
+    uses: ./.github/workflows/release.yml
+    with:
+      # Use the version from uplift as the release tag
+      release-tag: ${{ needs.uplift.outputs.version }}
+
+      # Test configuration
+      run-tests: true
+      test-framework: auto
+
+      # Release configuration
+      create-release: true
+      release-notes-auto: true
+
+      # Detect prerelease from version string (e.g., v1.0.0-alpha)
+      release-prerelease: ${{ contains(needs.uplift.outputs.version, '-') }}
+
+      # Build configuration
+      build-type: none
+
+  # Step 3: Summary of the pipeline
+  summary:
+    name: Summary
+    needs: [uplift, release]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "## Uplift + Release Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Uplift results
+          RELEASED="${{ needs.uplift.outputs.released }}"
+          VERSION="${{ needs.uplift.outputs.version }}"
+          PREV_VERSION="${{ needs.uplift.outputs.previous-version }}"
+
+          if [[ "$RELEASED" == "true" ]]; then
+            echo "### :rocket: New Release Created" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| New Version | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Previous Version | \`${PREV_VERSION:-none}\` |" >> $GITHUB_STEP_SUMMARY
+
+            # Release info
+            RELEASE_URL="${{ needs.release.outputs.release-url }}"
+            if [[ -n "$RELEASE_URL" ]]; then
+              echo "| Release URL | [View Release](${RELEASE_URL}) |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### :information_source: No Release Needed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No commits found that require a version bump." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To trigger a release, make commits using [Conventional Commits](https://www.conventionalcommits.org/):" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- \`feat: ...\` - Minor version bump" >> $GITHUB_STEP_SUMMARY
+            echo "- \`fix: ...\` - Patch version bump" >> $GITHUB_STEP_SUMMARY
+            echo "- \`feat!: ...\` or \`BREAKING CHANGE:\` - Major version bump" >> $GITHUB_STEP_SUMMARY
+          fi
