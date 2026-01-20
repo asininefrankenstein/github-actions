@@ -1,0 +1,61 @@
+name: Example - Release on Tag Creation
+# Example workflow demonstrating how to trigger a release when a tag is created
+#
+# This workflow shows the pattern for running the release pipeline when a new
+# version tag is pushed. Use this as a reference for implementing in your own
+# repositories.
+#
+# IMPORTANT: Tags created by GITHUB_TOKEN do NOT trigger workflows.
+# If you use the uplift workflow with GITHUB_TOKEN, this workflow will NOT run.
+# To trigger this workflow from uplift-created tags, you must configure uplift
+# to use a GitHub App token. See example-uplift-release.yml for the full pattern.
+
+on:
+  push:
+    tags:
+      # Trigger on semantic version tags (e.g., v1.0.0, v2.1.3)
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      # Also match prerelease tags (e.g., v1.0.0-alpha, v2.0.0-rc.1)
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+jobs:
+  release:
+    name: Release
+    uses: ./.github/workflows/release.yml
+    with:
+      # Test configuration
+      run-tests: true
+      test-framework: auto
+      fail-on-test-failure: true
+
+      # Release configuration
+      create-release: true
+      release-notes-auto: true
+      release-draft: false
+      release-prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Build configuration - choose one:
+      # build-type: none      # No build artifacts
+      # build-type: docker    # Build and push Docker image
+      # build-type: goreleaser # Use GoReleaser for multi-platform binaries
+      # build-type: custom    # Run custom build command
+      build-type: none
+
+    # Uncomment to pass secrets for Docker or GoReleaser builds:
+    # secrets:
+    #   docker-registry-password: ${{ secrets.DOCKER_PASSWORD }}
+    #   goreleaser-token: ${{ secrets.GORELEASER_TOKEN }}
+
+  # Optional: Post-release notification
+  notify:
+    name: Notify
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ needs.release.outputs.release-url != '' }}
+    steps:
+      - name: Release Summary
+        run: |
+          echo "## Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ needs.release.outputs.release-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** ${{ needs.release.outputs.release-url }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,192 @@
+name: Go SDK Release Pipeline
+# Complete CI/CD pipeline for Go SDK/library releases
+#
+# Pipeline stages:
+# 1. Lint - Run golangci-lint on all Go code
+# 2. Test - Run go test with coverage
+# 3. Version - Auto-tag based on Conventional Commits (main branch only)
+# 4. Release - Build multi-platform binaries with GoReleaser and create GitHub release
+# 5. Notify - Trigger webhook (e.g., Renovate) after successful release
+#
+# Requirements:
+# - Go module (go.mod in repository root)
+# - .goreleaser.yml configuration file
+# - Conventional Commits for automatic versioning
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Lint
+  # ===========================================================================
+  lint:
+    name: Lint
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      go: true
+      go-version: 'stable'
+      # Optional: specify golangci-lint version
+      # go-lint-version: 'latest'
+      # Optional: custom golangci-lint args
+      # go-lint-args: '--timeout=5m'
+
+  # ===========================================================================
+  # Stage 2: Test
+  # ===========================================================================
+  test:
+    name: Test
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+    with:
+      framework: go
+      go-version: 'stable'
+      coverage: true
+      coverage-threshold: 70
+      # Optional: custom test command
+      # test-command: 'go test -race -v ./...'
+
+  # ===========================================================================
+  # Stage 3: Version (auto-tag on main branch)
+  # ===========================================================================
+  version:
+    name: Version
+    needs: [lint, test]
+    # Only run on main branch pushes, not PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    with:
+      dry-run: false
+      # Optional: use GitHub App for triggering downstream workflows
+      # use-github-app: true
+    # secrets:
+    #   app-id: ${{ secrets.APP_ID }}
+    #   app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # ===========================================================================
+  # Stage 4: Release (when new version is tagged)
+  # ===========================================================================
+  release:
+    name: Release
+    needs: [lint, test, version]
+    # Only run if a new version was created
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      # Use the version tag from uplift
+      release-tag: ${{ needs.version.outputs.version }}
+
+      # Go and GoReleaser configuration
+      go-version: 'stable'
+      goreleaser-version: 'latest'
+      goreleaser-config: '.goreleaser.yml'
+      # goreleaser-args: ''  # Optional: additional args
+      # dry-run: false       # Set to true to test without publishing
+
+  # ===========================================================================
+  # Stage 5: Notify (trigger webhook after release)
+  # ===========================================================================
+  notify:
+    name: Notify
+    needs: [lint, test, version, release]
+    # Only run after successful release
+    if: needs.version.outputs.released == 'true' && needs.release.result == 'success'
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      # Option 1: HTTP webhook (e.g., self-hosted Renovate server)
+      # webhook-url: 'https://renovate.example.com/webhook'
+
+      # Option 2: Trigger GitHub workflow (e.g., Renovate workflow in another repo)
+      trigger-workflow: true
+      trigger-repo: ${{ github.repository_owner }}/renovate-config  # Change to your Renovate repo
+      trigger-workflow-id: 'renovate.yml'
+      trigger-ref: 'main'
+
+      # Pass release context
+      release-tag: ${{ needs.version.outputs.version }}
+      release-url: ${{ needs.release.outputs.release-url }}
+    secrets:
+      # For HTTP webhook authentication:
+      # webhook-token: ${{ secrets.RENOVATE_WEBHOOK_TOKEN }}
+
+      # For GitHub workflow_dispatch (needs workflow scope):
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+
+  # ===========================================================================
+  # Pipeline Summary
+  # ===========================================================================
+  summary:
+    name: Summary
+    needs: [lint, test, version, release, notify]
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'push'
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "## Go SDK Release Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Stage results
+          echo "### Pipeline Stages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Lint
+          if [[ "${{ needs.lint.result }}" == "success" ]]; then
+            echo "| Lint | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Lint | :x: ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Test
+          if [[ "${{ needs.test.result }}" == "success" ]]; then
+            echo "| Test | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Test | :x: ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Version
+          RELEASED="${{ needs.version.outputs.released }}"
+          VERSION="${{ needs.version.outputs.version }}"
+          if [[ "${{ needs.version.result }}" == "skipped" ]]; then
+            echo "| Version | :fast_forward: Skipped (PR) |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$RELEASED" == "true" ]]; then
+            echo "| Version | :label: ${VERSION} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Version | :information_source: No bump needed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release
+          RELEASE_URL="${{ needs.release.outputs.release-url }}"
+          if [[ "${{ needs.release.result }}" == "skipped" ]]; then
+            echo "| Release | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ -n "$RELEASE_URL" ]]; then
+            echo "| Release | :rocket: [Published](${RELEASE_URL}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Release | :x: ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Notify
+          if [[ "${{ needs.notify.result }}" == "skipped" ]]; then
+            echo "| Notify | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.notify.result }}" == "success" ]]; then
+            echo "| Notify | :bell: Triggered |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Notify | :warning: ${{ needs.notify.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release details
+          if [[ "$RELEASED" == "true" && -n "$RELEASE_URL" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Release Details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release:** [View on GitHub](${RELEASE_URL})" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,350 @@
+name: Webhook
+# Reusable workflow to trigger webhooks after releases
+# Common use cases: trigger Renovate, notify external systems, sync dependencies
+#
+# Supports:
+# - HTTP webhooks (POST/GET) with custom headers
+# - GitHub workflow_dispatch triggers
+# - Custom JSON payloads with release context
+
+on:
+  workflow_call:
+    inputs:
+      # Webhook configuration
+      webhook-url:
+        description: 'Webhook URL to call (use secrets for sensitive URLs)'
+        required: false
+        type: string
+        default: ''
+      webhook-method:
+        description: 'HTTP method: POST, GET, PUT'
+        required: false
+        type: string
+        default: 'POST'
+      webhook-payload:
+        description: 'Custom JSON payload (default includes release context)'
+        required: false
+        type: string
+        default: ''
+      webhook-headers:
+        description: 'Additional headers as JSON object (e.g., {"X-Custom": "value"})'
+        required: false
+        type: string
+        default: '{}'
+      webhook-content-type:
+        description: 'Content-Type header for the request'
+        required: false
+        type: string
+        default: 'application/json'
+
+      # GitHub workflow_dispatch trigger
+      trigger-workflow:
+        description: 'Trigger a GitHub workflow via workflow_dispatch'
+        required: false
+        type: boolean
+        default: false
+      trigger-repo:
+        description: 'Repository to trigger (owner/repo format, defaults to current)'
+        required: false
+        type: string
+        default: ''
+      trigger-workflow-id:
+        description: 'Workflow filename or ID to trigger (e.g., renovate.yml)'
+        required: false
+        type: string
+        default: ''
+      trigger-ref:
+        description: 'Git ref for workflow_dispatch (branch, tag, or SHA)'
+        required: false
+        type: string
+        default: 'main'
+      trigger-inputs:
+        description: 'Workflow inputs as JSON object'
+        required: false
+        type: string
+        default: '{}'
+
+      # Release context (passed from parent workflow)
+      release-tag:
+        description: 'Release tag for context'
+        required: false
+        type: string
+        default: ''
+      release-url:
+        description: 'Release URL for context'
+        required: false
+        type: string
+        default: ''
+
+      # Behavior
+      fail-on-error:
+        description: 'Fail the workflow if webhook call fails'
+        required: false
+        type: boolean
+        default: false
+      retry-count:
+        description: 'Number of retries on failure'
+        required: false
+        type: number
+        default: 3
+      retry-delay:
+        description: 'Delay between retries in seconds'
+        required: false
+        type: number
+        default: 5
+
+      # Runner configuration
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+    secrets:
+      webhook-url:
+        description: 'Webhook URL (secret, overrides input if provided)'
+        required: false
+      webhook-token:
+        description: 'Bearer token for webhook authentication'
+        required: false
+      github-token:
+        description: 'GitHub token for workflow_dispatch (needs workflow scope)'
+        required: false
+
+    outputs:
+      status:
+        description: 'Webhook call status: success, failure, skipped'
+        value: ${{ jobs.webhook.outputs.status }}
+      response-code:
+        description: 'HTTP response code from webhook'
+        value: ${{ jobs.webhook.outputs.response-code }}
+
+jobs:
+  webhook:
+    name: Webhook
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      status: ${{ steps.result.outputs.status }}
+      response-code: ${{ steps.webhook.outputs.response-code }}
+    steps:
+      - name: Determine Webhook URL
+        id: url
+        run: |
+          # Prefer secret URL over input URL
+          URL="${{ secrets.webhook-url }}"
+          if [[ -z "$URL" ]]; then
+            URL="${{ inputs.webhook-url }}"
+          fi
+
+          if [[ -z "$URL" && "${{ inputs.trigger-workflow }}" != "true" ]]; then
+            echo "No webhook URL provided and workflow trigger not enabled"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Don't expose URL in logs
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Build Payload
+        id: payload
+        if: steps.url.outputs.skip != 'true' && inputs.webhook-url != '' || steps.url.outputs.url != ''
+        run: |
+          CUSTOM_PAYLOAD='${{ inputs.webhook-payload }}'
+
+          if [[ -n "$CUSTOM_PAYLOAD" ]]; then
+            PAYLOAD="$CUSTOM_PAYLOAD"
+          else
+            # Build default payload with release context
+            PAYLOAD=$(jq -n \
+              --arg event "release" \
+              --arg action "published" \
+              --arg repo "${{ github.repository }}" \
+              --arg tag "${{ inputs.release-tag || github.ref_name }}" \
+              --arg url "${{ inputs.release-url }}" \
+              --arg sha "${{ github.sha }}" \
+              --arg actor "${{ github.actor }}" \
+              --arg run_id "${{ github.run_id }}" \
+              '{
+                event: $event,
+                action: $action,
+                repository: $repo,
+                release: {
+                  tag: $tag,
+                  url: $url
+                },
+                commit: $sha,
+                triggered_by: $actor,
+                workflow_run_id: $run_id
+              }')
+          fi
+
+          # Save to file to handle special characters
+          echo "$PAYLOAD" > /tmp/payload.json
+          echo "Payload built successfully"
+
+      - name: Call Webhook
+        id: webhook
+        if: steps.url.outputs.skip != 'true' && steps.url.outputs.url != ''
+        run: |
+          URL="${{ steps.url.outputs.url }}"
+          METHOD="${{ inputs.webhook-method }}"
+          CONTENT_TYPE="${{ inputs.webhook-content-type }}"
+          CUSTOM_HEADERS='${{ inputs.webhook-headers }}'
+          TOKEN="${{ secrets.webhook-token }}"
+          RETRY_COUNT="${{ inputs.retry-count }}"
+          RETRY_DELAY="${{ inputs.retry-delay }}"
+
+          # Build curl command
+          CURL_ARGS=(-s -w "\n%{http_code}" -X "$METHOD")
+
+          # Add content type
+          CURL_ARGS+=(-H "Content-Type: $CONTENT_TYPE")
+
+          # Add bearer token if provided
+          if [[ -n "$TOKEN" ]]; then
+            CURL_ARGS+=(-H "Authorization: Bearer $TOKEN")
+          fi
+
+          # Add custom headers
+          if [[ "$CUSTOM_HEADERS" != "{}" && -n "$CUSTOM_HEADERS" ]]; then
+            while IFS= read -r header; do
+              if [[ -n "$header" ]]; then
+                CURL_ARGS+=(-H "$header")
+              fi
+            done < <(echo "$CUSTOM_HEADERS" | jq -r 'to_entries | .[] | "\(.key): \(.value)"')
+          fi
+
+          # Add payload for POST/PUT
+          if [[ "$METHOD" == "POST" || "$METHOD" == "PUT" ]]; then
+            CURL_ARGS+=(-d @/tmp/payload.json)
+          fi
+
+          # Retry loop
+          ATTEMPT=1
+          SUCCESS=false
+
+          while [[ $ATTEMPT -le $RETRY_COUNT ]]; do
+            echo "Attempt $ATTEMPT of $RETRY_COUNT..."
+
+            RESPONSE=$(curl "${CURL_ARGS[@]}" "$URL" 2>&1) || true
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            echo "HTTP Response Code: $HTTP_CODE"
+
+            if [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Webhook call successful"
+              SUCCESS=true
+              break
+            else
+              echo "Webhook call failed with code: $HTTP_CODE"
+              if [[ $ATTEMPT -lt $RETRY_COUNT ]]; then
+                echo "Retrying in $RETRY_DELAY seconds..."
+                sleep "$RETRY_DELAY"
+              fi
+            fi
+
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "response-code=$HTTP_CODE" >> $GITHUB_OUTPUT
+
+          if [[ "$SUCCESS" != "true" ]]; then
+            echo "All retry attempts failed"
+            if [[ "${{ inputs.fail-on-error }}" == "true" ]]; then
+              exit 1
+            fi
+          fi
+
+      - name: Trigger GitHub Workflow
+        id: trigger
+        if: inputs.trigger-workflow == true
+        env:
+          GH_TOKEN: ${{ secrets.github-token || github.token }}
+        run: |
+          REPO="${{ inputs.trigger-repo || github.repository }}"
+          WORKFLOW="${{ inputs.trigger-workflow-id }}"
+          REF="${{ inputs.trigger-ref }}"
+          INPUTS='${{ inputs.trigger-inputs }}'
+
+          if [[ -z "$WORKFLOW" ]]; then
+            echo "Error: trigger-workflow-id is required when trigger-workflow is true"
+            exit 1
+          fi
+
+          echo "Triggering workflow: $WORKFLOW in $REPO (ref: $REF)"
+
+          # Build gh command
+          if [[ "$INPUTS" == "{}" || -z "$INPUTS" ]]; then
+            gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$REF"
+          else
+            # Convert JSON inputs to --field arguments
+            FIELD_ARGS=""
+            while IFS= read -r field; do
+              if [[ -n "$field" ]]; then
+                KEY=$(echo "$field" | jq -r '.key')
+                VALUE=$(echo "$field" | jq -r '.value')
+                FIELD_ARGS="$FIELD_ARGS --field $KEY=$VALUE"
+              fi
+            done < <(echo "$INPUTS" | jq -c 'to_entries | .[]')
+
+            gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$REF" $FIELD_ARGS
+          fi
+
+          echo "Workflow triggered successfully"
+
+      - name: Determine Result
+        id: result
+        if: always()
+        run: |
+          WEBHOOK_CODE="${{ steps.webhook.outputs.response-code }}"
+          TRIGGER="${{ inputs.trigger-workflow }}"
+          SKIPPED="${{ steps.url.outputs.skip }}"
+
+          if [[ "$SKIPPED" == "true" ]]; then
+            echo "status=skipped" >> $GITHUB_OUTPUT
+          elif [[ "$WEBHOOK_CODE" =~ ^2[0-9][0-9]$ ]] || [[ "$TRIGGER" == "true" && "${{ steps.trigger.outcome }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Webhook Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          STATUS="${{ steps.result.outputs.status }}"
+
+          if [[ "$STATUS" == "success" ]]; then
+            echo ":white_check_mark: **Webhook triggered successfully**" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$STATUS" == "skipped" ]]; then
+            echo ":fast_forward: **Webhook skipped** (no URL configured)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":x: **Webhook failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          # HTTP webhook details
+          if [[ -n "${{ steps.webhook.outputs.response-code }}" ]]; then
+            echo "| HTTP Method | \`${{ inputs.webhook-method }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Response Code | \`${{ steps.webhook.outputs.response-code }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Workflow trigger details
+          if [[ "${{ inputs.trigger-workflow }}" == "true" ]]; then
+            echo "| Triggered Workflow | \`${{ inputs.trigger-workflow-id }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Target Repository | \`${{ inputs.trigger-repo || github.repository }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Target Ref | \`${{ inputs.trigger-ref }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release context
+          TAG="${{ inputs.release-tag || github.ref_name }}"
+          echo "| Release Tag | \`${TAG}\` |" >> $GITHUB_STEP_SUMMARY

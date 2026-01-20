@@ -1,0 +1,333 @@
+name: Image Scan
+# Reusable workflow for container image security scanning
+# Uses Trivy for vulnerability detection
+
+on:
+  workflow_call:
+    inputs:
+      # Image configuration
+      image-ref:
+        description: 'Image reference to scan (e.g., ghcr.io/owner/repo:tag)'
+        required: true
+        type: string
+      image-digest:
+        description: 'Image digest for precise scanning (optional, more secure)'
+        required: false
+        type: string
+        default: ''
+
+      # Scan configuration
+      severity:
+        description: 'Severity levels to scan for (comma-separated: CRITICAL,HIGH,MEDIUM,LOW)'
+        required: false
+        type: string
+        default: 'CRITICAL,HIGH'
+      ignore-unfixed:
+        description: 'Ignore vulnerabilities without fixes'
+        required: false
+        type: boolean
+        default: false
+      exit-code:
+        description: 'Exit code when vulnerabilities found (0 to not fail)'
+        required: false
+        type: number
+        default: 1
+      timeout:
+        description: 'Scan timeout (e.g., 10m, 1h)'
+        required: false
+        type: string
+        default: '10m'
+
+      # Output configuration
+      output-format:
+        description: 'Output format: table, json, sarif'
+        required: false
+        type: string
+        default: 'table'
+      upload-sarif:
+        description: 'Upload SARIF results to GitHub Security tab'
+        required: false
+        type: boolean
+        default: true
+      upload-artifact:
+        description: 'Upload scan results as artifact'
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: 'Name for the scan results artifact'
+        required: false
+        type: string
+        default: 'trivy-scan-results'
+
+      # Trivy configuration
+      trivy-version:
+        description: 'Trivy version to use'
+        required: false
+        type: string
+        default: 'latest'
+      vuln-type:
+        description: 'Vulnerability types to scan (comma-separated: os,library)'
+        required: false
+        type: string
+        default: 'os,library'
+      scanners:
+        description: 'Scanners to use (comma-separated: vuln,secret,misconfig)'
+        required: false
+        type: string
+        default: 'vuln,secret'
+
+      # Runner configuration
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+    secrets:
+      registry-username:
+        description: 'Registry username for private images'
+        required: false
+      registry-password:
+        description: 'Registry password for private images'
+        required: false
+
+    outputs:
+      vulnerabilities-found:
+        description: 'Whether vulnerabilities were found (true/false)'
+        value: ${{ jobs.scan.outputs.vulnerabilities-found }}
+      critical-count:
+        description: 'Number of critical vulnerabilities'
+        value: ${{ jobs.scan.outputs.critical-count }}
+      high-count:
+        description: 'Number of high vulnerabilities'
+        value: ${{ jobs.scan.outputs.high-count }}
+      medium-count:
+        description: 'Number of medium vulnerabilities'
+        value: ${{ jobs.scan.outputs.medium-count }}
+      low-count:
+        description: 'Number of low vulnerabilities'
+        value: ${{ jobs.scan.outputs.low-count }}
+      scan-status:
+        description: 'Scan status: passed, failed, error'
+        value: ${{ jobs.scan.outputs.scan-status }}
+
+jobs:
+  scan:
+    name: Scan Image
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      security-events: write  # For SARIF upload
+    outputs:
+      vulnerabilities-found: ${{ steps.analyze.outputs.vulnerabilities-found }}
+      critical-count: ${{ steps.analyze.outputs.critical-count }}
+      high-count: ${{ steps.analyze.outputs.high-count }}
+      medium-count: ${{ steps.analyze.outputs.medium-count }}
+      low-count: ${{ steps.analyze.outputs.low-count }}
+      scan-status: ${{ steps.result.outputs.status }}
+    steps:
+      - name: Determine Image Reference
+        id: image
+        run: |
+          IMAGE="${{ inputs.image-ref }}"
+          DIGEST="${{ inputs.image-digest }}"
+
+          if [[ -n "$DIGEST" ]]; then
+            # Use digest for precise scanning
+            # Extract registry/repo from image-ref and append digest
+            REPO=$(echo "$IMAGE" | cut -d: -f1)
+            IMAGE="${REPO}@${DIGEST}"
+          fi
+
+          echo "ref=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Scanning image: $IMAGE"
+
+      - name: Log in to Registry
+        if: ${{ secrets.registry-username != '' && secrets.registry-password != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ contains(inputs.image-ref, '/') && (contains(inputs.image-ref, '.') && split(inputs.image-ref, '/')[0] || 'docker.io') || 'docker.io' }}
+          username: ${{ secrets.registry-username }}
+          password: ${{ secrets.registry-password }}
+
+      - name: Run Trivy Vulnerability Scanner
+        id: trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          vuln-type: ${{ inputs.vuln-type }}
+          scanners: ${{ inputs.scanners }}
+          timeout: ${{ inputs.timeout }}
+          exit-code: '0'  # Don't fail yet, we'll analyze first
+        env:
+          TRIVY_VERSION: ${{ inputs.trivy-version }}
+
+      - name: Analyze Results
+        id: analyze
+        run: |
+          if [[ ! -f trivy-results.json ]]; then
+            echo "No scan results found"
+            echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
+            echo "critical-count=0" >> $GITHUB_OUTPUT
+            echo "high-count=0" >> $GITHUB_OUTPUT
+            echo "medium-count=0" >> $GITHUB_OUTPUT
+            echo "low-count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Count vulnerabilities by severity
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-results.json 2>/dev/null || echo "0")
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-results.json 2>/dev/null || echo "0")
+          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' trivy-results.json 2>/dev/null || echo "0")
+          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "LOW")] | length' trivy-results.json 2>/dev/null || echo "0")
+          TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+
+          echo "critical-count=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high-count=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium-count=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "low-count=$LOW" >> $GITHUB_OUTPUT
+
+          if [[ $TOTAL -gt 0 ]]; then
+            echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
+          else
+            echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Found: $CRITICAL critical, $HIGH high, $MEDIUM medium, $LOW low vulnerabilities"
+
+      - name: Generate Table Output
+        if: inputs.output-format == 'table'
+        run: |
+          # Re-run trivy with table output for human-readable results
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/output \
+            aquasec/trivy:${{ inputs.trivy-version != 'latest' && inputs.trivy-version || 'latest' }} \
+            image \
+            --severity "${{ inputs.severity }}" \
+            --format table \
+            ${{ inputs.ignore-unfixed && '--ignore-unfixed' || '' }} \
+            "${{ steps.image.outputs.ref }}" \
+            | tee trivy-table.txt || true
+
+      - name: Generate SARIF Output
+        if: inputs.upload-sarif
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: ${{ inputs.severity }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          vuln-type: ${{ inputs.vuln-type }}
+          scanners: ${{ inputs.scanners }}
+          timeout: ${{ inputs.timeout }}
+
+      - name: Upload SARIF to GitHub Security
+        if: inputs.upload-sarif && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-container-scan'
+        continue-on-error: true  # Don't fail if SARIF upload fails
+
+      - name: Upload Scan Artifacts
+        if: inputs.upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            trivy-results.json
+            trivy-results.sarif
+            trivy-table.txt
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Determine Result
+        id: result
+        run: |
+          CRITICAL="${{ steps.analyze.outputs.critical-count }}"
+          HIGH="${{ steps.analyze.outputs.high-count }}"
+          EXIT_CODE="${{ inputs.exit-code }}"
+          SEVERITY="${{ inputs.severity }}"
+
+          # Check if we should fail based on severity settings
+          SHOULD_FAIL=false
+
+          if [[ "$EXIT_CODE" != "0" ]]; then
+            if [[ "$SEVERITY" == *"CRITICAL"* && "$CRITICAL" -gt 0 ]]; then
+              SHOULD_FAIL=true
+            fi
+            if [[ "$SEVERITY" == *"HIGH"* && "$HIGH" -gt 0 ]]; then
+              SHOULD_FAIL=true
+            fi
+          fi
+
+          if [[ "$SHOULD_FAIL" == "true" ]]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+          else
+            echo "status=passed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Container Image Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          STATUS="${{ steps.result.outputs.status }}"
+          CRITICAL="${{ steps.analyze.outputs.critical-count }}"
+          HIGH="${{ steps.analyze.outputs.high-count }}"
+          MEDIUM="${{ steps.analyze.outputs.medium-count }}"
+          LOW="${{ steps.analyze.outputs.low-count }}"
+
+          if [[ "$STATUS" == "passed" ]]; then
+            if [[ "${{ steps.analyze.outputs.vulnerabilities-found }}" == "true" ]]; then
+              echo ":warning: **Scan completed with findings**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo ":white_check_mark: **No vulnerabilities found**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo ":x: **Vulnerabilities detected - scan failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.image.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| :red_circle: Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| :orange_circle: High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| :yellow_circle: Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| :white_circle: Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Scan Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity Filter | \`${{ inputs.severity }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ignore Unfixed | \`${{ inputs.ignore-unfixed }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanners | \`${{ inputs.scanners }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Vuln Types | \`${{ inputs.vuln-type }}\` |" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ inputs.upload-sarif }}" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo ":information_source: Results uploaded to **Security** tab" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on Vulnerabilities
+        if: steps.result.outputs.status == 'failed'
+        run: |
+          echo "Vulnerabilities found that exceed the severity threshold"
+          exit 1
