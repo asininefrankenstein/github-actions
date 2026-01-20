@@ -36,7 +36,7 @@ jobs:
   lint:
     name: Lint
     if: ${{ github.event.inputs.run-lint == 'true' }}
-    uses: ./.github/workflows/lint.yml
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
     with:
       python: ${{ github.event.inputs.python-lint == 'true' }}
       yaml: ${{ github.event.inputs.yaml-lint == 'true' }}
@@ -47,7 +47,7 @@ jobs:
   test:
     name: Test
     if: ${{ github.event.inputs.run-tests == 'true' }}
-    uses: ./.github/workflows/test.yml
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
     with:
       framework: auto
       coverage: false
