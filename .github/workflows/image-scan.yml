@@ -238,7 +238,7 @@ jobs:
 
       - name: Upload Scan Artifacts
         if: inputs.upload-artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact-name }}
           path: |
