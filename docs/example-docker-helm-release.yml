@@ -70,6 +70,10 @@ jobs:
     uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
     with:
       dry-run: false
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   # ===========================================================================
   # Stage 4: Docker Build (when new version is tagged)

@@ -28,21 +28,20 @@ jobs:
   # Step 1: Run uplift to analyze commits and create version tag
   uplift:
     name: Version
-    uses: ./.github/workflows/uplift.yml
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
     with:
       dry-run: ${{ github.event.inputs.dry-run || false }}
-      # Uncomment to use GitHub App (enables triggering other workflows):
-      # use-github-app: true
-    # secrets:
-    #   app-id: ${{ secrets.APP_ID }}
-    #   app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   # Step 2: Run release pipeline if a new version was created
   release:
     name: Release
     needs: uplift
     if: ${{ needs.uplift.outputs.released == 'true' }}
-    uses: ./.github/workflows/release.yml
+    uses: jacaudi/github-actions/.github/workflows/release.yml@main
     with:
       # Use the version from uplift as the release tag
       release-tag: ${{ needs.uplift.outputs.version }}
