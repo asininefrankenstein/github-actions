@@ -14,6 +14,19 @@ jobs:
       python: true
 ```
 
+## Example Pipelines
+
+| Example | Description |
+|---------|-------------|
+| [Basic CI](docs/example-caller.yml) | Lint and test on push/PR. |
+| [Release on Tag](docs/example-release-on-tag.yml) | Create GitHub Release when a version tag is pushed. |
+| [Uplift + Release](docs/example-uplift-release.yml) | Auto-tag from commits and release in one workflow. |
+| [Go SDK](docs/example-go-sdk-release.yml) | Full pipeline: lint, test, auto-tag, GoReleaser multi-platform builds. |
+| [Docker + Helm](docs/example-docker-helm-release.yml) | Build container, scan, publish Helm chart, create release. |
+| [Self-Release](docs/example-self-release.yml) | CI/CD for workflow-only repos like this one. |
+
+See [docs/examples.md](docs/examples.md) for detailed documentation.
+
 ## Workflows
 
 ### Lint Workflow
@@ -494,6 +507,281 @@ jobs:
 permissions:
   contents: write
   packages: write  # Only for Docker builds
+```
+
+---
+
+### GoReleaser Workflow
+
+Dedicated workflow for Go project releases using [GoReleaser](https://goreleaser.com). Builds multi-platform binaries and creates GitHub releases with changelogs.
+
+**Usage:**
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      go-version: 'stable'
+      goreleaser-version: 'latest'
+```
+
+**With Uplift (Recommended for Go SDKs):**
+
+```yaml
+name: Go SDK Release
+on:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      go: true
+
+  test:
+    uses: jacaudi/github-actions/.github/workflows/test.yml@main
+    with:
+      framework: go
+      coverage: true
+
+  version:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+
+  release:
+    needs: [lint, test, version]
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      release-tag: ${{ needs.version.outputs.version }}
+```
+
+**Dry Run / Snapshot Mode:**
+
+```yaml
+jobs:
+  release:
+    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
+    with:
+      dry-run: true   # Build but don't publish
+      # OR
+      snapshot: true  # Create snapshot build (no tag required)
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `go-version` | string | `'stable'` | Go version for building |
+| `goreleaser-version` | string | `'latest'` | GoReleaser version |
+| `goreleaser-config` | string | `'.goreleaser.yml'` | Config file path |
+| `goreleaser-args` | string | `''` | Additional GoReleaser arguments |
+| `release-tag` | string | `''` | Tag name (defaults to github.ref_name) |
+| `dry-run` | boolean | `false` | Skip publishing (test mode) |
+| `snapshot` | boolean | `false` | Create snapshot build |
+| `runs-on` | string | `'ubuntu-latest'` | Runner label |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `github-token` | No | Token for releases (defaults to GITHUB_TOKEN) |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `release-url` | URL of the created release |
+| `release-tag` | Tag name of the release |
+| `version` | Released version (without v prefix) |
+| `artifacts` | JSON array of built artifacts |
+| `metadata` | GoReleaser metadata JSON |
+
+**Required Permissions:**
+
+```yaml
+permissions:
+  contents: write
+  packages: write
+```
+
+> **Note:** For Go SDK releases, use the dedicated `goreleaser.yml` workflow instead of `release.yml` with `build-type: goreleaser`. This avoids conflicts between GoReleaser's release creation and the release workflow's release creation.
+
+---
+
+### Webhook Workflow
+
+Trigger webhooks or GitHub workflows after releases. Common use case: trigger [Renovate](https://docs.renovatebot.com/) to update dependencies across repositories.
+
+**Usage - HTTP Webhook:**
+
+```yaml
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    # ... release job ...
+
+  notify:
+    needs: release
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      webhook-method: 'POST'
+    secrets:
+      webhook-url: ${{ secrets.RENOVATE_WEBHOOK_URL }}
+      webhook-token: ${{ secrets.RENOVATE_WEBHOOK_TOKEN }}
+```
+
+**Usage - Trigger GitHub Workflow (Renovate):**
+
+```yaml
+jobs:
+  notify:
+    needs: release
+    uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+    with:
+      trigger-workflow: true
+      trigger-repo: 'myorg/renovate-config'
+      trigger-workflow-id: 'renovate.yml'
+      trigger-ref: 'main'
+      release-tag: ${{ needs.release.outputs.release-tag }}
+    secrets:
+      github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| **HTTP Webhook** |
+| `webhook-url` | string | `''` | Webhook URL (prefer using secret) |
+| `webhook-method` | string | `'POST'` | HTTP method: POST, GET, PUT |
+| `webhook-payload` | string | `''` | Custom JSON payload |
+| `webhook-headers` | string | `'{}'` | Additional headers as JSON |
+| `webhook-content-type` | string | `'application/json'` | Content-Type header |
+| **GitHub Workflow Trigger** |
+| `trigger-workflow` | boolean | `false` | Enable workflow_dispatch trigger |
+| `trigger-repo` | string | `''` | Target repository (owner/repo) |
+| `trigger-workflow-id` | string | `''` | Workflow filename or ID |
+| `trigger-ref` | string | `'main'` | Git ref for the trigger |
+| `trigger-inputs` | string | `'{}'` | Workflow inputs as JSON |
+| **Context** |
+| `release-tag` | string | `''` | Release tag for context |
+| `release-url` | string | `''` | Release URL for context |
+| **Behavior** |
+| `fail-on-error` | boolean | `false` | Fail if webhook fails |
+| `retry-count` | number | `3` | Retry attempts |
+| `retry-delay` | number | `5` | Seconds between retries |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `webhook-url` | No | Webhook URL (secret, preferred over input) |
+| `webhook-token` | No | Bearer token for authentication |
+| `github-token` | No | Token for workflow_dispatch (needs workflow scope) |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `status` | Result: success, failure, skipped |
+| `response-code` | HTTP response code |
+
+> **Renovate Integration:** To trigger Renovate after releases, you can either call a self-hosted [Renovate server webhook](https://github.com/stack11/renovate-server) or trigger a workflow_dispatch on a repository running Renovate. See [Mend Renovate docs](https://docs.mend.io/wsk/renovate-ee-job-processing-in-renovate) for more options.
+
+---
+
+### Image Scan Workflow
+
+Container image security scanning using [Trivy](https://trivy.dev). Detects vulnerabilities, secrets, and misconfigurations.
+
+**Usage:**
+
+```yaml
+name: Scan
+on:
+  push:
+
+jobs:
+  build:
+    uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
+    with:
+      image-name: myapp
+
+  scan:
+    needs: build
+    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
+    with:
+      image-ref: ghcr.io/${{ github.repository }}:latest
+      image-digest: ${{ needs.build.outputs.digest }}
+      severity: 'CRITICAL,HIGH'
+      upload-sarif: true
+```
+
+**Report Only (Don't Fail):**
+
+```yaml
+jobs:
+  scan:
+    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
+    with:
+      image-ref: ghcr.io/myorg/myapp:v1.0.0
+      exit-code: 0  # Don't fail on vulnerabilities
+      severity: 'CRITICAL,HIGH,MEDIUM'
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `image-ref` | string | **required** | Image reference to scan |
+| `image-digest` | string | `''` | Image digest for precise scanning |
+| `severity` | string | `'CRITICAL,HIGH'` | Severity levels to scan |
+| `ignore-unfixed` | boolean | `false` | Ignore vulnerabilities without fixes |
+| `exit-code` | number | `1` | Exit code when vulnerabilities found (0 = don't fail) |
+| `timeout` | string | `'10m'` | Scan timeout |
+| `upload-sarif` | boolean | `true` | Upload to GitHub Security tab |
+| `upload-artifact` | boolean | `true` | Upload scan results as artifact |
+| `trivy-version` | string | `'latest'` | Trivy version |
+| `vuln-type` | string | `'os,library'` | Vulnerability types |
+| `scanners` | string | `'vuln,secret'` | Scanners to use |
+
+**Secrets:**
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `registry-username` | No | Username for private registries |
+| `registry-password` | No | Password for private registries |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `vulnerabilities-found` | Whether vulnerabilities were found |
+| `critical-count` | Number of critical vulnerabilities |
+| `high-count` | Number of high vulnerabilities |
+| `medium-count` | Number of medium vulnerabilities |
+| `low-count` | Number of low vulnerabilities |
+| `scan-status` | Scan status: passed, failed, error |
+
+**Required Permissions:**
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # For SARIF upload
 ```
 
 ---

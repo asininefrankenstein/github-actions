@@ -1,0 +1,155 @@
+name: Self-Release Pipeline
+# CI/CD pipeline for releasing GitHub Actions workflows repositories
+#
+# This pattern is ideal for:
+# - Repositories containing only reusable workflows
+# - Action libraries with no build artifacts
+# - Any repo that just needs versioning and changelog
+#
+# Pipeline stages:
+# 1. Lint - Validate YAML workflow files
+# 2. Version - Auto-tag based on Conventional Commits (main branch only)
+# 3. Release - Create GitHub Release with changelog
+#
+# Requirements:
+# - Conventional Commits for automatic versioning
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Lint
+  # ===========================================================================
+  lint:
+    name: Lint
+    uses: jacaudi/github-actions/.github/workflows/lint.yml@main
+    with:
+      yaml: true
+      # Enable additional linters if your repo has other file types:
+      # python: true  # If you have Python scripts
+      # go: true      # If you have Go code
+
+  # ===========================================================================
+  # Stage 2: Version (auto-tag on main branch)
+  # ===========================================================================
+  version:
+    name: Version
+    needs: [lint]
+    # Only run on main branch pushes, not PRs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    with:
+      dry-run: false
+      # Optional: use GitHub App to trigger downstream workflows
+      # use-github-app: true
+    # secrets:
+    #   app-id: ${{ secrets.APP_ID }}
+    #   app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # ===========================================================================
+  # Stage 3: Release (when new version is tagged)
+  # ===========================================================================
+  release:
+    name: Release
+    needs: [lint, version]
+    # Only run if a new version was created
+    if: needs.version.outputs.released == 'true'
+    uses: jacaudi/github-actions/.github/workflows/release.yml@main
+    with:
+      # No build artifacts - just create the release
+      build-type: none
+      run-tests: false
+      create-release: true
+      release-tag: ${{ needs.version.outputs.version }}
+      release-notes-auto: true
+
+  # ===========================================================================
+  # Optional: Notify downstream (trigger Renovate, etc.)
+  # ===========================================================================
+  # notify:
+  #   name: Notify
+  #   needs: [version, release]
+  #   if: needs.version.outputs.released == 'true' && needs.release.result == 'success'
+  #   uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
+  #   with:
+  #     trigger-workflow: true
+  #     trigger-repo: ${{ github.repository_owner }}/renovate-config
+  #     trigger-workflow-id: 'renovate.yml'
+  #     trigger-ref: 'main'
+  #     release-tag: ${{ needs.version.outputs.version }}
+  #     release-url: ${{ needs.release.outputs.release-url }}
+  #   secrets:
+  #     github-token: ${{ secrets.RENOVATE_TRIGGER_TOKEN }}
+
+  # ===========================================================================
+  # Pipeline Summary
+  # ===========================================================================
+  summary:
+    name: Summary
+    needs: [lint, version, release]
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'push'
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "## Self-Release Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Stage results
+          echo "### Pipeline Stages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Lint
+          if [[ "${{ needs.lint.result }}" == "success" ]]; then
+            echo "| Lint | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Lint | :x: ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Version
+          RELEASED="${{ needs.version.outputs.released }}"
+          VERSION="${{ needs.version.outputs.version }}"
+          if [[ "${{ needs.version.result }}" == "skipped" ]]; then
+            echo "| Version | :fast_forward: Skipped (PR) |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$RELEASED" == "true" ]]; then
+            echo "| Version | :label: ${VERSION} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Version | :information_source: No bump needed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release
+          RELEASE_URL="${{ needs.release.outputs.release-url }}"
+          if [[ "${{ needs.release.result }}" == "skipped" ]]; then
+            echo "| Release | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif [[ -n "$RELEASE_URL" ]]; then
+            echo "| Release | :rocket: [Published](${RELEASE_URL}) |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Release | :x: ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release details
+          if [[ "$RELEASED" == "true" && -n "$RELEASE_URL" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Release Details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release:** [View on GitHub](${RELEASE_URL})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Usage" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Reference this release in your workflows:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
+            echo "uses: ${{ github.repository }}/.github/workflows/example.yml@${VERSION}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
