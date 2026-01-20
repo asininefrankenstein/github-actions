@@ -41,11 +41,10 @@ jobs:
     uses: ./.github/workflows/uplift.yml
     with:
       dry-run: false
-      # Optional: use GitHub App for triggering downstream workflows
-      # use-github-app: true
-    # secrets:
-    #   app-id: ${{ secrets.APP_ID }}
-    #   app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   # ===========================================================================
   # Stage 3: Release (when new version is tagged)
