@@ -18,6 +18,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: write
+
 jobs:
   # ===========================================================================
   # Stage 1: Lint
@@ -62,6 +65,7 @@ jobs:
       create-release: true
       release-tag: ${{ needs.version.outputs.version }}
       release-notes-auto: true
+    secrets: inherit
 
   # ===========================================================================
   # Pipeline Summary
