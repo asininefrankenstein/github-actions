@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
 
+- [`c36ce3c`](https://github.com/jacaudi/github-actions/commit/c36ce3c621bcb1aa6bc7ff98d565fdad927bbd58) fix: Resolve syntax errors in image-scan.yml workflow
+
+## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
+
 - [`272cdd1`](https://github.com/jacaudi/github-actions/commit/272cdd1197083b9c21d0761371f778b6ac644534) fix: Properly detect version creation in uplift workflow
 
 ## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
