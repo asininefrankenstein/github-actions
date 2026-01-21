@@ -116,7 +116,8 @@ jobs:
           FRAMEWORK="${{ inputs.framework }}"
 
           if [[ "$FRAMEWORK" == "auto" ]]; then
-            if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -f "requirements.txt" ]] || [[ -f "pytest.ini" ]]; then
+            if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || \
+               [[ -f "requirements.txt" ]] || [[ -f "pytest.ini" ]]; then
               FRAMEWORK="pytest"
               echo "Detected Python project"
             elif [[ -f "go.mod" ]]; then
