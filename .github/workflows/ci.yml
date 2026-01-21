@@ -29,6 +29,7 @@ jobs:
     uses: ./.github/workflows/lint.yml
     with:
       yaml: true
+      yamllint-config: .yamllint.yml
       # Workflows are YAML files, so we lint them
       # No other linters needed for a workflows-only repo
 

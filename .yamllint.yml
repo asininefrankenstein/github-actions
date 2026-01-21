@@ -1,0 +1,27 @@
+---
+# yamllint configuration for GitHub Actions workflows
+extends: default
+
+rules:
+  # Allow missing document start (---) for workflow files
+  document-start:
+    present: false
+
+  # Relax line length for long GitHub Actions expressions
+  line-length:
+    max: 120
+    level: warning
+
+  # Allow yes/no and on/off for truthy values (common in GitHub Actions)
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+    check-keys: false
+
+  # Allow comments to have only one space after #
+  comments:
+    min-spaces-from-content: 1
+
+  # Indentation appropriate for GitHub Actions
+  indentation:
+    spaces: 2
+    indent-sequences: true
