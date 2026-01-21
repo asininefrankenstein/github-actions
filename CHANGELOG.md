@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
 
+- [`272cdd1`](https://github.com/jacaudi/github-actions/commit/272cdd1197083b9c21d0761371f778b6ac644534) fix: Properly detect version creation in uplift workflow
+
+## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
+
 - [`fab2b76`](https://github.com/jacaudi/github-actions/commit/fab2b766506787c7b7dd77f84dd7448f1dfa39a2) fix: Add yamllint config and resolve linting issues
 - [`6361810`](https://github.com/jacaudi/github-actions/commit/63618102feef2e8ed8dae1f75eb447a201d36cc4) fix: Add packages write permission to CI/CD workflow
 - [`ed8ddb3`](https://github.com/jacaudi/github-actions/commit/ed8ddb3d610ae2f9abeb726580d337b87c7ce234) Merge branch 'claude/review-release-workflow-idq4m'
