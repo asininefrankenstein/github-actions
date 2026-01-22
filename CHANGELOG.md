@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
 
+- [`da69b04`](https://github.com/jacaudi/github-actions/commit/da69b0427e48b04f6e3eb42652e77e9021898d6b) fix: Configure Renovate to use fix(deps) for version bumps
+
+## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
+
 - [`c36ce3c`](https://github.com/jacaudi/github-actions/commit/c36ce3c621bcb1aa6bc7ff98d565fdad927bbd58) fix: Resolve syntax errors in image-scan.yml workflow
 
 ## [](https://github.com/jacaudi/github-actions/releases/tag/) - 0001-01-01
