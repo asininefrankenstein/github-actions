@@ -597,9 +597,9 @@ jobs:
           echo "$RELEASE_OUTPUT"
 
           # Get release info
-          RELEASE_INFO=$(gh release view "$TAG" --json id,htmlUrl 2>/dev/null || echo '{}')
+          RELEASE_INFO=$(gh release view "$TAG" --json id,url 2>/dev/null || echo '{}')
           RELEASE_ID=$(echo "$RELEASE_INFO" | jq -r '.id // empty')
-          RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r '.htmlUrl // empty')
+          RELEASE_URL=$(echo "$RELEASE_INFO" | jq -r '.url // empty')
 
           echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
           echo "html_url=$RELEASE_URL" >> $GITHUB_OUTPUT
