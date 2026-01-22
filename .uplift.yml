@@ -12,6 +12,7 @@ annotatedTags: true
 changelog:
   sort: asc
   exclude:
+    - '^chore'
     - '^ci'
     - '^docs'
     - '^style'
