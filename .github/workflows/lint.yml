@@ -170,7 +170,7 @@ jobs:
       # Go Linting with golangci-lint
       - name: Set up Go
         if: inputs.go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ inputs.go-version }}
 
