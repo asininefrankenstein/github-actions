@@ -71,7 +71,7 @@ jobs:
   # Pipeline Summary
   # ===========================================================================
   summary:
-    name: Summary
+    name: Pipeline Report
     needs: [lint, version, release]
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'push'
