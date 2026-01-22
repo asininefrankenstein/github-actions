@@ -133,7 +133,7 @@ jobs:
       - name: Generate GitHub App Token
         id: app-token
         if: ${{ inputs.use-github-app }}
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.app-id }}
           private-key: ${{ secrets.app-private-key }}
