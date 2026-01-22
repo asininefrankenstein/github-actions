@@ -140,7 +140,7 @@ jobs:
       # Python/pytest setup
       - name: Set up Python
         if: steps.detect.outputs.framework == 'pytest'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
 

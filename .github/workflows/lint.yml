@@ -145,7 +145,7 @@ jobs:
       # Python Linting with Ruff
       - name: Set up Python
         if: inputs.python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
 
