@@ -1,0 +1,94 @@
+name: Test go-semantic-release
+# Test workflow to validate go-semantic-release behavior
+# This workflow runs on the refactor/semantic-release-research branch only
+
+on:
+  push:
+    branches:
+      - refactor/semantic-release-research
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  test-go-semantic-release:
+    name: Test Semantic Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate git history
+        run: |
+          echo "Checking git history..."
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          TAG_COUNT=$(git tag -l | wc -l | tr -d ' ')
+
+          echo "Total commits: ${COMMIT_COUNT}"
+          echo "Total tags: ${TAG_COUNT}"
+
+          # List recent commits for visibility
+          echo ""
+          echo "Recent commits:"
+          git log --oneline -10 || true
+
+          # List existing tags
+          if [[ "${TAG_COUNT}" != "0" ]]; then
+            echo ""
+            echo "Existing version tags:"
+            git tag -l 'v*' --sort=-v:refname | head -5 || true
+          fi
+
+      - name: Run go-semantic-release (dry-run)
+        uses: go-semantic-release/action@v1
+        id: semrel
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry: true
+          allow-initial-development-versions: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Display results
+        if: always()
+        run: |
+          echo "## go-semantic-release Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.semrel.outputs.new_release_published }}" == "true" ]]; then
+            echo "✅ **Would create new release**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Version | \`${{ steps.semrel.outputs.new_release_version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Major | \`${{ steps.semrel.outputs.new_release_major_version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Minor | \`${{ steps.semrel.outputs.new_release_minor_version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Patch | \`${{ steps.semrel.outputs.new_release_patch_version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.semrel.outputs.new_release_notes }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No release needed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No qualifying commits found since last release." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Compare with current version
+        run: |
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "none")
+          echo "Current latest tag: ${LATEST_TAG}"
+          echo "Would create: ${{ steps.semrel.outputs.new_release_version || 'no release' }}"
+
+          if [[ "${{ steps.semrel.outputs.new_release_published }}" == "true" ]]; then
+            echo ""
+            echo "✅ Version bump detected!"
+            echo "From: ${LATEST_TAG}"
+            echo "To: ${{ steps.semrel.outputs.new_release_version }}"
+          fi

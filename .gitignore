@@ -8,3 +8,6 @@
 .worktrees/
 .security-key
 logs/security/
+
+# Planning documents (local only)
+docs/plans/
