@@ -45,13 +45,40 @@ jobs:
             git tag -l 'v*' --sort=-v:refname | head -5 || true
           fi
 
-      - name: Run go-semantic-release (dry-run)
-        uses: go-semantic-release/action@v1
+      - name: Download go-semantic-release
+        run: |
+          curl -SL https://get-release.xyz/semantic-release/linux/amd64 -o ./semantic-release && chmod +x ./semantic-release
+
+      - name: Run go-semantic-release (dry-run with output)
         id: semrel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          dry: true
-          allow-initial-development-versions: true
+        run: |
+          ./semantic-release --dry --allow-initial-development-versions --changelog .changelog.md 2>&1 | tee semrel.log
+
+          # Check if release would be created
+          if grep -q "new version:" semrel.log; then
+            NEW_VERSION=$(grep "new version:" semrel.log | awk '{print $NF}')
+            echo "new_release_published=true" >> $GITHUB_OUTPUT
+            echo "new_release_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+            # Parse version parts
+            VERSION_CLEAN=$(echo "$NEW_VERSION" | sed 's/^v//')
+            MAJOR=$(echo "$VERSION_CLEAN" | cut -d. -f1)
+            MINOR=$(echo "$VERSION_CLEAN" | cut -d. -f2)
+            PATCH=$(echo "$VERSION_CLEAN" | cut -d. -f3)
+
+            echo "new_release_major_version=$MAJOR" >> $GITHUB_OUTPUT
+            echo "new_release_minor_version=$MINOR" >> $GITHUB_OUTPUT
+            echo "new_release_patch_version=$PATCH" >> $GITHUB_OUTPUT
+
+            # Capture changelog if it exists
+            if [ -f .changelog.md ]; then
+              echo "changelog<<EOF" >> $GITHUB_OUTPUT
+              cat .changelog.md >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "new_release_published=false" >> $GITHUB_OUTPUT
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -71,9 +98,13 @@ jobs:
             echo "| Minor | \`${{ steps.semrel.outputs.new_release_minor_version }}\` |" >> $GITHUB_STEP_SUMMARY
             echo "| Patch | \`${{ steps.semrel.outputs.new_release_patch_version }}\` |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Release Notes" >> $GITHUB_STEP_SUMMARY
+            echo "### Changelog" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "${{ steps.semrel.outputs.new_release_notes }}" >> $GITHUB_STEP_SUMMARY
+            if [ -f .changelog.md ]; then
+              cat .changelog.md >> $GITHUB_STEP_SUMMARY
+            else
+              echo "_Changelog file not generated_" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "ℹ️ **No release needed**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
