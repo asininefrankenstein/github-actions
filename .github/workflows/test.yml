@@ -9,7 +9,7 @@ on:
         required: false
         type: string
         default: ''
-      framework:
+      test-framework:
         description: 'Test framework to use: auto, pytest, go, npm, bun, custom'
         required: false
         type: string
@@ -113,7 +113,7 @@ jobs:
       - name: Detect Framework
         id: detect
         run: |
-          FRAMEWORK="${{ inputs.framework }}"
+          FRAMEWORK="${{ inputs.test-framework }}"
 
           if [[ "$FRAMEWORK" == "auto" ]]; then
             if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || \

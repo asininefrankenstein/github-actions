@@ -1,0 +1,17 @@
+# Auto-version + Release (Recommended)
+# Automatically determines version from commits and creates releases
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
+    with:
+      use-github-app: true
+      allow-initial-development-versions: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}

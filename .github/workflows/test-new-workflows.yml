@@ -1,0 +1,86 @@
+name: Test New Workflows
+# Manual test workflow to validate semantic-release.yml and ci-cd-unified.yml
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-type:
+        description: 'Which workflow to test'
+        required: true
+        type: choice
+        options:
+          - semantic-release
+          - ci-cd-unified
+          - both
+
+jobs:
+  # Test the modular semantic-release workflow
+  test-semantic-release:
+    name: Test Semantic Release Workflow
+    if: ${{ inputs.test-type == 'semantic-release' || inputs.test-type == 'both' }}
+    uses: ./.github/workflows/semantic-release.yml
+    with:
+      dry-run: true
+      allow-initial-development-versions: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # Test the unified CI/CD workflow
+  test-ci-cd-unified:
+    name: Test Unified CI/CD Workflow
+    if: ${{ inputs.test-type == 'ci-cd-unified' || inputs.test-type == 'both' }}
+    uses: ./.github/workflows/ci-cd-unified.yml
+    with:
+      run-lint: true
+      yaml-lint: true
+      run-tests: false
+      run-release: true
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  # Summary
+  summary:
+    name: Test Summary
+    needs: [test-semantic-release, test-ci-cd-unified]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## New Workflows Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Semantic Release
+          if [[ "${{ needs.test-semantic-release.result }}" != "" ]]; then
+            if [[ "${{ needs.test-semantic-release.result }}" == "success" ]]; then
+              echo "| Semantic Release | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+            elif [[ "${{ needs.test-semantic-release.result }}" == "skipped" ]]; then
+              echo "| Semantic Release | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| Semantic Release | ❌ ${{ needs.test-semantic-release.result }} |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # CI/CD Unified
+          if [[ "${{ needs.test-ci-cd-unified.result }}" != "" ]]; then
+            if [[ "${{ needs.test-ci-cd-unified.result }}" == "success" ]]; then
+              echo "| CI/CD Unified | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+            elif [[ "${{ needs.test-ci-cd-unified.result }}" == "skipped" ]]; then
+              echo "| CI/CD Unified | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| CI/CD Unified | ❌ ${{ needs.test-ci-cd-unified.result }} |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # Release info (if semantic-release was tested)
+          if [[ "${{ needs.test-semantic-release.outputs.new-release-published }}" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Would Create Release" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** \`${{ needs.test-semantic-release.outputs.new-release-version }}\`" >> $GITHUB_STEP_SUMMARY
+          fi

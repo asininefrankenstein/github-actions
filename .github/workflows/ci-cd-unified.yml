@@ -1,0 +1,273 @@
+name: CI/CD Unified
+# Complete CI/CD pipeline in a single reusable workflow
+# Combines: Linting, Testing, Semantic Versioning, and Release creation
+#
+# This is the "all-in-one" option that provides a complete pipeline.
+# For modular approach, use individual workflows instead:
+#   - lint.yml
+#   - test.yml
+#   - semantic-release.yml
+#   - docker-build.yml, goreleaser.yml, etc.
+#
+# Usage:
+#   on:
+#     push:
+#       branches: [main]
+#
+#   jobs:
+#     ci-cd:
+#       uses: your-org/github-actions/.github/workflows/ci-cd-unified.yml@main
+#       with:
+#         run-tests: true
+#         test-framework: pytest
+#         use-github-app: true
+#       secrets:
+#         app-id: ${{ secrets.APP_ID }}
+#         app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    inputs:
+      # Lint configuration
+      run-lint:
+        description: 'Run linting stage'
+        required: false
+        type: boolean
+        default: true
+      yaml-lint:
+        description: 'Run YAML linting'
+        required: false
+        type: boolean
+        default: true
+      yamllint-config:
+        description: 'Path to yamllint config file'
+        required: false
+        type: string
+        default: ''
+      shell-lint:
+        description: 'Run shell script linting'
+        required: false
+        type: boolean
+        default: false
+      python-lint:
+        description: 'Run Python linting (ruff)'
+        required: false
+        type: boolean
+        default: false
+      go-lint:
+        description: 'Run Go linting (golangci-lint)'
+        required: false
+        type: boolean
+        default: false
+
+      # Test configuration
+      run-tests:
+        description: 'Run testing stage'
+        required: false
+        type: boolean
+        default: false
+      test-framework:
+        description: 'Test framework: auto, pytest, go, npm, bun, custom'
+        required: false
+        type: string
+        default: 'auto'
+      test-command:
+        description: 'Custom test command'
+        required: false
+        type: string
+        default: ''
+
+      # Semantic release configuration
+      run-release:
+        description: 'Run semantic release (only on main branch)'
+        required: false
+        type: boolean
+        default: true
+      allow-initial-development-versions:
+        description: 'Allow versions < 1.0.0'
+        required: false
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark release as prerelease'
+        required: false
+        type: boolean
+        default: false
+      release-hooks:
+        description: 'Hooks to run during release (e.g., goreleaser)'
+        required: false
+        type: string
+        default: ''
+
+      # GitHub App authentication
+      use-github-app:
+        description: 'Use GitHub App for authentication (enables downstream triggers)'
+        required: false
+        type: boolean
+        default: false
+
+      # Runner configuration
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+    secrets:
+      app-id:
+        description: 'GitHub App ID'
+        required: false
+      app-private-key:
+        description: 'GitHub App private key'
+        required: false
+
+    outputs:
+      # Lint outputs
+      lint-result:
+        description: 'Lint stage result (success, failure, skipped)'
+        value: ${{ jobs.lint.result }}
+
+      # Test outputs
+      test-result:
+        description: 'Test stage result (success, failure, skipped)'
+        value: ${{ jobs.test.result }}
+
+      # Release outputs
+      new-release-published:
+        description: 'Whether a new release was published'
+        value: ${{ jobs.release.outputs.new-release-published }}
+      new-release-version:
+        description: 'The new version that was released'
+        value: ${{ jobs.release.outputs.new-release-version }}
+      release-url:
+        description: 'GitHub release URL'
+        value: ${{ jobs.release.outputs.release-url }}
+
+jobs:
+  # ===========================================================================
+  # Stage 1: Lint
+  # ===========================================================================
+  lint:
+    name: Lint
+    if: ${{ inputs.run-lint }}
+    uses: ./.github/workflows/lint.yml
+    with:
+      yaml: ${{ inputs.yaml-lint }}
+      yamllint-config: ${{ inputs.yamllint-config }}
+      shell: ${{ inputs.shell-lint }}
+      python: ${{ inputs.python-lint }}
+      go: ${{ inputs.go-lint }}
+
+  # ===========================================================================
+  # Stage 2: Test
+  # ===========================================================================
+  test:
+    name: Test
+    needs: [lint]
+    if: |
+      always() &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
+      inputs.run-tests
+    uses: ./.github/workflows/test.yml
+    with:
+      test-framework: ${{ inputs.test-framework }}
+      test-command: ${{ inputs.test-command }}
+      runs-on: ${{ inputs.runs-on }}
+
+  # ===========================================================================
+  # Stage 3: Semantic Release
+  # ===========================================================================
+  release:
+    name: Release
+    needs: [lint, test]
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      inputs.run-release
+    uses: ./.github/workflows/semantic-release.yml
+    with:
+      use-github-app: ${{ inputs.use-github-app }}
+      allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+      prerelease: ${{ inputs.prerelease }}
+      hooks: ${{ inputs.release-hooks }}
+      runs-on: ${{ inputs.runs-on }}
+    secrets:
+      app-id: ${{ secrets.app-id }}
+      app-private-key: ${{ secrets.app-private-key }}
+
+  # ===========================================================================
+  # Stage 4: Summary
+  # ===========================================================================
+  summary:
+    name: Pipeline Summary
+    needs: [lint, test, release]
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'push'
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Overall status
+          OVERALL_STATUS="✅ Success"
+          if [[ "${{ needs.lint.result }}" == "failure" ]] || [[ "${{ needs.test.result }}" == "failure" ]] || [[ "${{ needs.release.result }}" == "failure" ]]; then
+            OVERALL_STATUS="❌ Failed"
+          fi
+          echo "**Status:** ${OVERALL_STATUS}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Stage results
+          echo "### Pipeline Stages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Lint
+          if [[ "${{ needs.lint.result }}" == "success" ]]; then
+            echo "| 🔍 Lint | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.lint.result }}" == "skipped" ]]; then
+            echo "| 🔍 Lint | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🔍 Lint | ❌ ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Test
+          if [[ "${{ needs.test.result }}" == "success" ]]; then
+            echo "| 🧪 Test | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.test.result }}" == "skipped" ]]; then
+            echo "| 🧪 Test | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🧪 Test | ❌ ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release
+          if [[ "${{ needs.release.outputs.new-release-published }}" == "true" ]]; then
+            echo "| 🚀 Release | ✅ v${{ needs.release.outputs.new-release-version }} |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.release.result }}" == "success" ]]; then
+            echo "| 🚀 Release | ℹ️ No release needed |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.release.result }}" == "skipped" ]]; then
+            echo "| 🚀 Release | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🚀 Release | ❌ ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release details
+          if [[ "${{ needs.release.outputs.new-release-published }}" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🎉 Release Details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** \`${{ needs.release.outputs.new-release-version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release:** [View on GitHub](https://github.com/${{ github.repository }}/releases/tag/${{ needs.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Usage" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Reference this release in your workflows:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
+            echo "uses: ${{ github.repository }}/.github/workflows/semantic-release.yml@${{ needs.release.outputs.new-release-version }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi

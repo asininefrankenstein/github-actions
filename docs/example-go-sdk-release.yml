@@ -1,4 +1,4 @@
-# Go SDK Release: Lint, Test, Auto-tag, GoReleaser
+# Go SDK Release: Lint, Test, Auto-version, GoReleaser
 # Requirements: go.mod, .goreleaser.yml
 name: Go SDK Release
 
@@ -16,22 +16,17 @@ jobs:
   test:
     uses: jacaudi/github-actions/.github/workflows/test.yml@main
     with:
-      framework: go
+      test-framework: go
       coverage: true
 
-  version:
+  release:
     needs: [lint, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
       use-github-app: true
+      hooks: goreleaser
+      allow-initial-development-versions: true
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-  release:
-    needs: [lint, test, version]
-    if: needs.version.outputs.released == 'true'
-    uses: jacaudi/github-actions/.github/workflows/goreleaser.yml@main
-    with:
-      release-tag: ${{ needs.version.outputs.version }}

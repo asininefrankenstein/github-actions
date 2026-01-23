@@ -3,10 +3,10 @@ name: CI/CD
 #
 # Pipeline stages:
 # 1. Lint - Validate YAML workflow files
-# 2. Version - Auto-tag based on Conventional Commits (main branch only)
-# 3. Release - Create GitHub Release with changelog
+# 2. Release - Auto-version, tag, and release based on Conventional Commits (main branch only)
 #
 # This workflow "dogfoods" the reusable workflows in this repository
+# Uses go-semantic-release for automatic versioning with native feat! support
 
 on:
   push:
@@ -34,45 +34,27 @@ jobs:
       # No other linters needed for a workflows-only repo
 
   # ===========================================================================
-  # Stage 2: Version (auto-tag on main branch)
-  # ===========================================================================
-  version:
-    name: Version
-    needs: [lint]
-    # Only run on main branch pushes, not PRs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/uplift.yml
-    with:
-      dry-run: false
-      use-github-app: true
-    secrets:
-      app-id: ${{ secrets.APP_ID }}
-      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-  # ===========================================================================
-  # Stage 3: Release (when new version is tagged)
+  # Stage 2: Semantic Release (auto-version, tag, and release on main branch)
   # ===========================================================================
   release:
     name: Release
-    needs: [lint, version]
-    # Only run if a new version was created
-    if: needs.version.outputs.released == 'true'
-    uses: ./.github/workflows/release.yml
+    needs: [lint]
+    # Only run on main branch pushes, not PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/semantic-release.yml
     with:
-      # No build artifacts needed for a workflows repo
-      build-type: none
-      run-tests: false
-      create-release: true
-      release-tag: ${{ needs.version.outputs.version }}
-      release-notes-auto: true
-    secrets: inherit
+      use-github-app: true
+      allow-initial-development-versions: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   # ===========================================================================
   # Pipeline Summary
   # ===========================================================================
   summary:
     name: Pipeline Report
-    needs: [lint, version, release]
+    needs: [lint, release]
     runs-on: ubuntu-latest
     if: always() && github.event_name == 'push'
     steps:
@@ -94,34 +76,26 @@ jobs:
             echo "| Lint | :x: ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          # Version
-          RELEASED="${{ needs.version.outputs.released }}"
-          VERSION="${{ needs.version.outputs.version }}"
-          if [[ "${{ needs.version.result }}" == "skipped" ]]; then
-            echo "| Version | :fast_forward: Skipped (PR) |" >> $GITHUB_STEP_SUMMARY
-          elif [[ "$RELEASED" == "true" ]]; then
-            echo "| Version | :label: ${VERSION} |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Version | :information_source: No bump needed |" >> $GITHUB_STEP_SUMMARY
-          fi
-
           # Release
-          RELEASE_URL="${{ needs.release.outputs.release-url }}"
+          RELEASED="${{ needs.release.outputs.new-release-published }}"
+          VERSION="${{ needs.release.outputs.new-release-version }}"
           if [[ "${{ needs.release.result }}" == "skipped" ]]; then
-            echo "| Release | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
-          elif [[ -n "$RELEASE_URL" ]]; then
-            echo "| Release | :rocket: [Published](${RELEASE_URL}) |" >> $GITHUB_STEP_SUMMARY
+            echo "| Release | :fast_forward: Skipped (PR) |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$RELEASED" == "true" ]]; then
+            echo "| Release | :rocket: ${VERSION} |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.release.result }}" == "success" ]]; then
+            echo "| Release | :information_source: No release needed |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Release | :x: ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Release details
-          if [[ "$RELEASED" == "true" && -n "$RELEASE_URL" ]]; then
+          if [[ "$RELEASED" == "true" ]]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Release Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "- **Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Release:** [View on GitHub](${RELEASE_URL})" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release:** [View on GitHub](https://github.com/${{ github.repository }}/releases/tag/${VERSION})" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "#### Usage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY

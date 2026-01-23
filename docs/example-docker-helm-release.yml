@@ -17,45 +17,40 @@ jobs:
   test:
     uses: jacaudi/github-actions/.github/workflows/test.yml@main
 
-  version:
+  release:
     needs: [lint, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
       use-github-app: true
+      allow-initial-development-versions: true
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   docker:
-    needs: [version]
-    if: needs.version.outputs.released == 'true'
+    needs: [release]
+    if: needs.release.outputs.new-release-published == 'true'
     uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
     with:
       image-name: ${{ github.repository }}
+      tags: |
+        ghcr.io/${{ github.repository }}:${{ needs.release.outputs.new-release-version }}
+        ghcr.io/${{ github.repository }}:latest
 
   scan:
-    needs: [version, docker]
-    if: needs.version.outputs.released == 'true'
+    needs: [release, docker]
+    if: needs.release.outputs.new-release-published == 'true'
     uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
     with:
-      image-ref: ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
+      image-ref: ghcr.io/${{ github.repository }}:${{ needs.release.outputs.new-release-version }}
       image-digest: ${{ needs.docker.outputs.digest }}
 
   helm:
-    needs: [version, scan]
-    if: needs.version.outputs.released == 'true'
+    needs: [release, scan]
+    if: needs.release.outputs.new-release-published == 'true'
     uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
     with:
       chart-name: myapp  # Change to your chart name
       chart-path: charts/myapp
-
-  release:
-    needs: [version, docker, helm]
-    if: needs.version.outputs.released == 'true'
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
-    with:
-      release-tag: ${{ needs.version.outputs.version }}
-      create-release: true
-      build-type: none
-    secrets: inherit
+      version: ${{ needs.release.outputs.new-release-version }}

@@ -1,0 +1,321 @@
+name: Semantic Release
+# Reusable workflow for automatic semantic versioning using go-semantic-release
+# Analyzes commit history and creates version tags + GitHub releases
+#
+# Features:
+# - Native feat! syntax support for breaking changes
+# - Automatic tag creation based on Conventional Commits
+# - GitHub release creation with changelog
+# - Optional GitHub App authentication for triggering downstream workflows
+#
+# Usage:
+#   jobs:
+#     release:
+#       uses: your-org/github-actions/.github/workflows/semantic-release.yml@main
+#       with:
+#         use-github-app: true
+#       secrets:
+#         app-id: ${{ secrets.APP_ID }}
+#         app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        description: 'Run in dry-run mode (no tags or releases created)'
+        required: false
+        type: boolean
+        default: false
+      allow-initial-development-versions:
+        description: 'Allow versions < 1.0.0 (initial development)'
+        required: false
+        type: boolean
+        default: true
+      changelog-file:
+        description: 'Path to changelog file (empty = no file created)'
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 'Mark release as prerelease'
+        required: false
+        type: boolean
+        default: false
+      hooks:
+        description: 'Hooks to run (e.g., goreleaser, npm-binary-releaser, exec)'
+        required: false
+        type: string
+        default: ''
+      config-file:
+        description: 'Path to .semrelrc config file (default: .semrelrc in root)'
+        required: false
+        type: string
+        default: ''
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      use-github-app:
+        description: 'Use GitHub App authentication (enables downstream workflow triggers)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      app-id:
+        description: 'GitHub App ID (required if use-github-app is true)'
+        required: false
+      app-private-key:
+        description: 'GitHub App private key (required if use-github-app is true)'
+        required: false
+    outputs:
+      new-release-published:
+        description: 'Whether a new release was published (true/false)'
+        value: ${{ jobs.release.outputs.new-release-published }}
+      new-release-version:
+        description: 'The new version that was released (e.g., v1.2.3)'
+        value: ${{ jobs.release.outputs.new-release-version }}
+      new-release-major-version:
+        description: 'Major version number'
+        value: ${{ jobs.release.outputs.new-release-major-version }}
+      new-release-minor-version:
+        description: 'Minor version number'
+        value: ${{ jobs.release.outputs.new-release-minor-version }}
+      new-release-patch-version:
+        description: 'Patch version number'
+        value: ${{ jobs.release.outputs.new-release-patch-version }}
+      new-release-git-head:
+        description: 'Git commit SHA of the release'
+        value: ${{ jobs.release.outputs.new-release-git-head }}
+      new-release-git-tag:
+        description: 'Git tag created for the release'
+        value: ${{ jobs.release.outputs.new-release-git-tag }}
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new-release-published: ${{ steps.release.outputs.new-release-published }}
+      new-release-version: ${{ steps.release.outputs.new-release-version }}
+      new-release-major-version: ${{ steps.release.outputs.new-release-major-version }}
+      new-release-minor-version: ${{ steps.release.outputs.new-release-minor-version }}
+      new-release-patch-version: ${{ steps.release.outputs.new-release-patch-version }}
+      new-release-git-head: ${{ steps.release.outputs.new-release-git-head }}
+      new-release-git-tag: ${{ steps.release.outputs.new-release-git-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Validate git history
+        run: |
+          echo "Checking git history..."
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          TAG_COUNT=$(git tag -l | wc -l | tr -d ' ')
+
+          echo "Total commits: ${COMMIT_COUNT}"
+          echo "Total tags: ${TAG_COUNT}"
+
+          if [[ "${COMMIT_COUNT}" == "0" ]]; then
+            echo "::warning::No commits found in repository"
+          fi
+
+          # List recent commits for visibility
+          echo ""
+          echo "Recent commits:"
+          git log --oneline -10 || true
+
+          # List existing tags
+          if [[ "${TAG_COUNT}" != "0" ]]; then
+            echo ""
+            echo "Existing version tags:"
+            git tag -l 'v*' --sort=-v:refname | head -5 || true
+          fi
+
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.use-github-app }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Determine token to use
+        id: token
+        run: |
+          if [[ -n "${{ steps.app-token.outputs.token }}" ]]; then
+            echo "Using GitHub App token (will trigger downstream workflows)"
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=app" >> $GITHUB_OUTPUT
+          else
+            echo "Using GITHUB_TOKEN (will NOT trigger downstream workflows)"
+            echo "token=${{ github.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=github" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build semantic-release arguments
+        id: args
+        run: |
+          ARGS=""
+
+          # Add dry-run flag
+          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            ARGS="${ARGS} --dry"
+          fi
+
+          # Add allow-initial-development-versions flag
+          if [[ "${{ inputs.allow-initial-development-versions }}" == "true" ]]; then
+            ARGS="${ARGS} --allow-initial-development-versions"
+          fi
+
+          # Add changelog file
+          if [[ -n "${{ inputs.changelog-file }}" ]]; then
+            ARGS="${ARGS} --changelog ${{ inputs.changelog-file }}"
+          fi
+
+          # Add prerelease flag
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            ARGS="${ARGS} --prerelease"
+          fi
+
+          # Add hooks
+          if [[ -n "${{ inputs.hooks }}" ]]; then
+            ARGS="${ARGS} --hooks ${{ inputs.hooks }}"
+          fi
+
+          # Add config file
+          if [[ -n "${{ inputs.config-file }}" ]]; then
+            ARGS="${ARGS} --config ${{ inputs.config-file }}"
+          fi
+
+          echo "Semantic release arguments: ${ARGS}"
+          echo "args=${ARGS}" >> $GITHUB_OUTPUT
+
+      - name: Capture current version
+        id: before
+        run: |
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
+          echo "latest-tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "Current latest tag: ${LATEST_TAG:-none}"
+
+      - name: Run go-semantic-release
+        id: semrel
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          dry: ${{ inputs.dry-run }}
+          allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          prerelease: ${{ inputs.prerelease }}
+          hooks: ${{ inputs.hooks }}
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Process release results
+        id: release
+        run: |
+          # Fetch tags to get the latest
+          git fetch --tags 2>/dev/null || true
+
+          BEFORE_TAG="${{ steps.before.outputs.latest-tag }}"
+          AFTER_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
+
+          echo "Before: ${BEFORE_TAG:-none}"
+          echo "After: ${AFTER_TAG:-none}"
+
+          if [[ -n "${AFTER_TAG}" ]] && [[ "${AFTER_TAG}" != "${BEFORE_TAG}" ]]; then
+            # New release created
+            echo "new-release-published=true" >> $GITHUB_OUTPUT
+            echo "new-release-version=${AFTER_TAG}" >> $GITHUB_OUTPUT
+            echo "new-release-git-tag=${AFTER_TAG}" >> $GITHUB_OUTPUT
+
+            # Get git commit SHA
+            GIT_HEAD=$(git rev-parse HEAD)
+            echo "new-release-git-head=${GIT_HEAD}" >> $GITHUB_OUTPUT
+
+            # Parse version parts (remove 'v' prefix)
+            VERSION_CLEAN=$(echo "${AFTER_TAG}" | sed 's/^v//')
+            MAJOR=$(echo "${VERSION_CLEAN}" | cut -d. -f1)
+            MINOR=$(echo "${VERSION_CLEAN}" | cut -d. -f2)
+            PATCH=$(echo "${VERSION_CLEAN}" | cut -d. -f3)
+
+            echo "new-release-major-version=${MAJOR}" >> $GITHUB_OUTPUT
+            echo "new-release-minor-version=${MINOR}" >> $GITHUB_OUTPUT
+            echo "new-release-patch-version=${PATCH}" >> $GITHUB_OUTPUT
+
+            echo "✅ New version released: ${AFTER_TAG}"
+          else
+            # No release created
+            echo "new-release-published=false" >> $GITHUB_OUTPUT
+            echo "new-release-version=" >> $GITHUB_OUTPUT
+            echo "new-release-git-tag=" >> $GITHUB_OUTPUT
+            echo "new-release-git-head=" >> $GITHUB_OUTPUT
+            echo "new-release-major-version=" >> $GITHUB_OUTPUT
+            echo "new-release-minor-version=" >> $GITHUB_OUTPUT
+            echo "new-release-patch-version=" >> $GITHUB_OUTPUT
+
+            echo "ℹ️ No new version created (no qualifying commits since last release)"
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Semantic Release Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Status badge
+          if [[ "${{ steps.release.outputs.new-release-published }}" == "true" ]]; then
+            echo "🚀 **New Version Released**" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            echo "🧪 **Dry Run Mode** - No changes made" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No Release Needed** - No qualifying commits found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${{ steps.release.outputs.new-release-version }}" ]]; then
+            echo "| New Version | \`${{ steps.release.outputs.new-release-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Major | \`${{ steps.release.outputs.new-release-major-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Minor | \`${{ steps.release.outputs.new-release-minor-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Patch | \`${{ steps.release.outputs.new-release-patch-version }}\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| New Version | _None_ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ -n "${{ steps.before.outputs.latest-tag }}" ]]; then
+            echo "| Previous Version | \`${{ steps.before.outputs.latest-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Previous Version | _None_ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "| Dry Run | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Token Type | ${{ steps.token.outputs.token-type }} |" >> $GITHUB_STEP_SUMMARY
+
+          # Token warning
+          if [[ "${{ steps.token.outputs.token-type }}" == "github" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> ⚠️ **Note:** Using GITHUB_TOKEN. Tags/releases created by this workflow will NOT trigger other workflows." >> $GITHUB_STEP_SUMMARY
+            echo "> To trigger downstream workflows, set \`use-github-app: true\` and provide app credentials." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Release link
+          if [[ "${{ steps.release.outputs.new-release-published }}" == "true" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+            echo "- [View Tag](https://github.com/${{ github.repository }}/tree/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+            echo "- [Compare Changes](https://github.com/${{ github.repository }}/compare/${{ steps.before.outputs.latest-tag }}...${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+          fi
