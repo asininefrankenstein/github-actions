@@ -6,13 +6,13 @@ Detailed documentation for all reusable workflows in this repository.
 
 - [Lint Workflow](#lint-workflow)
 - [Test Workflow](#test-workflow)
+- [Semantic Release Workflow](#semantic-release-workflow)
 - [Docker Build Workflow](#docker-build-workflow)
 - [Helm Publish Workflow](#helm-publish-workflow)
-- [Uplift Workflow](#uplift-workflow)
-- [Release Workflow](#release-workflow)
 - [GoReleaser Workflow](#goreleaser-workflow)
 - [Webhook Workflow](#webhook-workflow)
 - [Image Scan Workflow](#image-scan-workflow)
+- [CI/CD Unified Workflow](#ci-cd-unified-workflow)
 
 ---
 
@@ -302,11 +302,11 @@ helm install my-release oci://ghcr.io/myorg/my-chart --version 1.0.0
 
 ---
 
-## Uplift Workflow
+## Semantic Release Workflow
 
-Automatic semantic versioning using [Uplift](https://uplift.dev) based on Conventional Commits.
+Automatic semantic versioning using [go-semantic-release](https://github.com/go-semantic-release/semantic-release) based on Conventional Commits. Creates version tags and GitHub releases automatically with native `feat!` support for breaking changes.
 
-**Usage:**
+**Basic Usage:**
 
 ```yaml
 name: Release
@@ -315,10 +315,11 @@ on:
     branches: [main]
 
 jobs:
-  version:
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+  release:
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
       use-github-app: true
+      allow-initial-development-versions: true
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -328,177 +329,109 @@ jobs:
 
 ```yaml
 jobs:
-  version:
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+  release:
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
       dry-run: true
-      uplift-args: 'release'
 ```
 
-**Prerelease Versions:**
+**With Hooks (e.g., GoReleaser):**
 
 ```yaml
 jobs:
-  version:
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+  release:
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
-      prerelease: 'beta'  # Creates v1.2.3-beta.1
+      hooks: 'goreleaser'
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
 **Inputs:**
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `uplift-args` | string | `'release'` | Uplift command: release, tag, bump, changelog |
-| `dry-run` | boolean | `false` | Run without making changes |
-| `fetch-tags` | boolean | `true` | Fetch all tags |
-| `config-file` | string | `''` | Path to Uplift config file |
-| `skip-changelog` | boolean | `false` | Skip changelog generation |
-| `skip-bumps` | boolean | `false` | Skip file version bumps |
-| `prerelease` | string | `''` | Prerelease suffix (alpha, beta, rc) |
+| `dry-run` | boolean | `false` | Run without creating tags/releases |
+| `allow-initial-development-versions` | boolean | `true` | Allow versions < 1.0.0 |
+| `changelog-file` | string | `''` | Path to changelog file (empty = no file) |
+| `prerelease` | boolean | `false` | Mark release as prerelease |
+| `hooks` | string | `''` | Hooks to run (e.g., goreleaser, npm-binary-releaser) |
+| `config-file` | string | `''` | Path to .semrelrc config file |
 | `runs-on` | string | `'ubuntu-latest'` | Runner label |
+| `use-github-app` | boolean | `false` | Use GitHub App authentication |
 
 **Secrets:**
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `app-id` | No | GitHub App ID for triggering workflows |
-| `app-private-key` | No | GitHub App private key |
+| `app-id` | No | GitHub App ID (required if use-github-app is true) |
+| `app-private-key` | No | GitHub App private key (required if use-github-app is true) |
 
 **Outputs:**
 
 | Output | Description |
 |--------|-------------|
-| `version` | New version created |
-| `previous-version` | Previous version |
-| `changelog` | Generated changelog |
-| `released` | Whether a release was created (true/false) |
+| `new-release-published` | Whether a new release was published (true/false) |
+| `new-release-version` | The new version (e.g., v1.2.3) |
+| `new-release-major-version` | Major version number |
+| `new-release-minor-version` | Minor version number |
+| `new-release-patch-version` | Patch version number |
+| `new-release-git-head` | Git commit SHA of the release |
+| `new-release-git-tag` | Git tag created for the release |
 
 **Required Permissions:**
 
 ```yaml
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 ```
 
-> **Note:** Using GITHUB_TOKEN will **not** trigger downstream workflows. To trigger other workflows when a tag is created, provide `app-id` and `app-private-key` secrets for a GitHub App.
+**Conventional Commits:**
+
+go-semantic-release uses Conventional Commits to determine version bumps:
+
+| Commit Type | Version Bump (0.x.x) | Version Bump (≥1.0.0) |
+|-------------|---------------------|----------------------|
+| `feat:` | Minor (0.x.0) | Minor (x.y.0) |
+| `fix:` | Patch (0.0.x) | Patch (x.y.z) |
+| `feat!:` | **Minor (0.x.0)** | **Major (x.0.0)** |
+| `fix!:` | **Minor (0.x.0)** | **Major (x.0.0)** |
+| `chore:`, `docs:`, `ci:` | No release | No release |
+
+**Configuration (.semrelrc):**
+
+Create a `.semrelrc` file in your repository root:
+
+```json
+{
+  "branches": ["main"],
+  "plugins": {
+    "commit-analyzer": {
+      "name": "default"
+    },
+    "ci-condition": {
+      "name": "default"
+    },
+    "changelog-generator": {
+      "name": "default",
+      "options": {
+        "emojis": "false"
+      }
+    },
+    "provider": {
+      "name": "github"
+    }
+  }
+}
+```
+
+> **Note:** Using GITHUB_TOKEN will **not** trigger downstream workflows. To trigger other workflows when a release is created, set `use-github-app: true` and provide `app-id` and `app-private-key` secrets for a GitHub App.
 
 ---
-
-## Release Workflow
-
-Full release pipeline orchestrating tests, builds, and GitHub release creation.
-
-**Usage:**
-
-```yaml
-name: Release
-on:
-  push:
-    tags: ['v*']
-
-jobs:
-  release:
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
-    with:
-      run-tests: true
-      build-type: 'docker'
-      docker-platforms: 'linux/amd64,linux/arm64'
-      create-release: true
-```
-
-**With GoReleaser:**
-
-```yaml
-jobs:
-  release:
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
-    with:
-      run-tests: true
-      test-framework: 'go'
-      build-type: 'goreleaser'
-      goreleaser-config: '.goreleaser.yml'
-```
-
-**Minimal Release (No Build):**
-
-```yaml
-jobs:
-  release:
-    uses: jacaudi/github-actions/.github/workflows/release.yml@main
-    with:
-      run-tests: true
-      build-type: 'none'
-      create-release: true
-      release-notes-auto: true
-```
-
-**Inputs:**
-
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| **Test Options** |
-| `run-tests` | boolean | `true` | Run tests before release |
-| `test-command` | string | `''` | Custom test command |
-| `test-framework` | string | `'auto'` | Test framework |
-| `fail-on-test-failure` | boolean | `true` | Fail release if tests fail |
-| **Release Options** |
-| `create-release` | boolean | `true` | Create GitHub release |
-| `release-tag` | string | `''` | Tag name (defaults to github.ref_name) |
-| `release-name` | string | `''` | Release name |
-| `release-notes` | string | `''` | Custom release notes |
-| `release-notes-auto` | boolean | `true` | Auto-generate notes |
-| `release-draft` | boolean | `false` | Create as draft |
-| `release-prerelease` | boolean | `false` | Mark as prerelease |
-| **Build Options** |
-| `build-type` | string | `'none'` | Build type: none, docker, goreleaser, custom |
-| `build-command` | string | `''` | Custom build command |
-| **Docker Options** |
-| `docker-registry` | string | `'ghcr.io'` | Container registry |
-| `docker-image-name` | string | `''` | Image name |
-| `docker-platforms` | string | `'linux/amd64,linux/arm64'` | Target platforms |
-| `docker-context` | string | `'.'` | Build context |
-| `docker-file` | string | `'./Dockerfile'` | Dockerfile path |
-| `docker-build-args` | string | `''` | Build arguments |
-| **GoReleaser Options** |
-| `goreleaser-version` | string | `'latest'` | GoReleaser version |
-| `goreleaser-args` | string | `''` | Additional arguments |
-| `goreleaser-config` | string | `'.goreleaser.yml'` | Config file path |
-| `go-version` | string | `'stable'` | Go version |
-| **Artifact Options** |
-| `artifact-pattern` | string | `''` | Glob pattern for release artifacts |
-| `artifact-retention-days` | number | `90` | Artifact retention days |
-
-**Secrets:**
-
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `docker-registry-password` | No | Registry password for Docker builds |
-| `goreleaser-token` | No | Token for GoReleaser |
-| `release-token` | No | Token for creating releases |
-
-**Outputs:**
-
-| Output | Description |
-|--------|-------------|
-| `release-id` | Created release ID |
-| `release-url` | Release URL |
-| `release-tag` | Release tag name |
-| `test-status` | Test result: passed, failed, skipped |
-| `build-status` | Build result: success, failure, skipped |
-| `docker-digest` | Docker image digest |
-| `docker-tags` | Docker image tags |
-
-**Required Permissions:**
-
-```yaml
-permissions:
-  contents: write
-  packages: write  # Only for Docker builds
-```
-
----
-
 ## GoReleaser Workflow
 
 Dedicated workflow for Go project releases using [GoReleaser](https://goreleaser.com). Builds multi-platform binaries and creates GitHub releases with changelogs.
