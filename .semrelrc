@@ -1,10 +1,11 @@
 {
+  "branches": ["main", "refactor/semantic-release-research"],
   "plugins": {
     "commit-analyzer": {
       "name": "default"
     },
     "ci-condition": {
-      "name": "github"
+      "name": "default"
     },
     "changelog-generator": {
       "name": "default",
