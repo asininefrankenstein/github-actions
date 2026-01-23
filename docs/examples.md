@@ -7,9 +7,8 @@ Copy and adapt these templates for your own projects.
 | Template | Description |
 |----------|-------------|
 | [example-caller.yml](example-caller.yml) | Basic lint and test |
-| [example-release-on-tag.yml](example-release-on-tag.yml) | Release when tag is pushed |
 | [example-semantic-release.yml](example-semantic-release.yml) | Auto-version + release (recommended) |
-| [example-go-sdk-release.yml](example-go-sdk-release.yml) | Go SDK: lint, test, GoReleaser |
+| [example-go-sdk-release.yml](example-go-sdk-release.yml) | Go SDK: lint, test, GoReleaser hooks |
 | [example-docker-helm-release.yml](example-docker-helm-release.yml) | Docker + Helm + security scan |
 | [example-self-release.yml](example-self-release.yml) | For workflow-only repos |
 

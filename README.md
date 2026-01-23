@@ -19,9 +19,8 @@ jobs:
 | Example | Description |
 |---------|-------------|
 | [Basic CI](docs/example-caller.yml) | Lint and test on push/PR. |
-| [Release on Tag](docs/example-release-on-tag.yml) | Create GitHub Release when a version tag is pushed. |
 | [Semantic Release](docs/example-semantic-release.yml) | Auto-version, tag, and release from Conventional Commits. |
-| [Go SDK](docs/example-go-sdk-release.yml) | Full pipeline: lint, test, auto-version, GoReleaser multi-platform builds. |
+| [Go SDK](docs/example-go-sdk-release.yml) | Full pipeline: lint, test, auto-version with GoReleaser hooks. |
 | [Docker + Helm](docs/example-docker-helm-release.yml) | Build container, scan, publish Helm chart, create release. |
 | [Self-Release](docs/example-self-release.yml) | CI/CD for workflow-only repos like this one. |
 
@@ -36,7 +35,6 @@ See [docs/examples.md](docs/examples.md) for detailed pipeline documentation.
 | [semantic-release.yml](docs/workflows.md#semantic-release-workflow) | Automatic semantic versioning with native feat! support |
 | [docker-build.yml](docs/workflows.md#docker-build-workflow) | Multi-arch container builds with caching |
 | [helm-publish.yml](docs/workflows.md#helm-publish-workflow) | Publish Helm charts to OCI registries |
-| [goreleaser.yml](docs/workflows.md#goreleaser-workflow) | Go multi-platform binary releases |
 | [webhook.yml](docs/workflows.md#webhook-workflow) | Post-release webhooks and workflow triggers |
 | [image-scan.yml](docs/workflows.md#image-scan-workflow) | Container security scanning with Trivy |
 | [ci-cd-unified.yml](docs/workflows.md#ci-cd-unified-workflow) | Complete CI/CD pipeline (lint, test, release) |
