@@ -9,5 +9,8 @@
 .security-key
 logs/security/
 
+# Private journal (MCP server data)
+.private-journal/
+
 # Planning documents (local only)
 docs/plans/
