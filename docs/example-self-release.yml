@@ -16,7 +16,7 @@ jobs:
   version:
     needs: [lint]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+    uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
     with:
       use-github-app: true
     secrets:
@@ -25,10 +25,10 @@ jobs:
 
   release:
     needs: [lint, version]
-    if: needs.version.outputs.released == 'true'
+    if: needs.version.outputs.new-release-published == 'true'
     uses: jacaudi/github-actions/.github/workflows/release.yml@main
     with:
-      release-tag: ${{ needs.version.outputs.version }}
+      release-tag: ${{ needs.version.outputs.new-release-version }}
       create-release: true
       build-type: none
     secrets: inherit
