@@ -104,6 +104,21 @@ on:
         required: false
         type: boolean
         default: true
+      upload-artifact:
+        description: 'Upload lint results as artifact'
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: 'Name for lint result artifacts'
+        required: false
+        type: string
+        default: 'lint-results'
+      artifact-retention-days:
+        description: 'Number of days to retain lint artifacts'
+        required: false
+        type: number
+        default: 7
     outputs:
       python-status:
         description: 'Python lint result: success, failure, or skipped'
@@ -142,6 +157,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Create results directory
+        run: mkdir -p .lint-results
+
       # Python Linting with Ruff
       - name: Set up Python
         if: inputs.python
@@ -164,6 +182,8 @@ jobs:
         continue-on-error: ${{ !inputs.fail-fast }}
         run: |
           echo "::group::Ruff Output"
+          # Output JSON for artifacts and console for visibility
+          ruff check --output-format json ${{ inputs.ruff-args }} > .lint-results/ruff.json 2>&1 || true
           ruff check ${{ inputs.ruff-args }}
           echo "::endgroup::"
 
@@ -184,6 +204,12 @@ jobs:
           args: ${{ inputs.golangci-lint-args }}
           working-directory: ${{ inputs.working-directory }}
 
+      - name: Save golangci-lint JSON output
+        if: inputs.go && always()
+        continue-on-error: true
+        run: |
+          golangci-lint run --out-format json ${{ inputs.golangci-lint-args }} > .lint-results/golangci-lint.json 2>&1 || true
+
       # Shell Linting with ShellCheck
       - name: Run ShellCheck
         id: shell-lint
@@ -194,6 +220,14 @@ jobs:
           version: ${{ inputs.shellcheck-version }}
           scandir: ${{ inputs.shellcheck-paths }}
           additional_files: ${{ inputs.shellcheck-args }}
+
+      - name: Save ShellCheck JSON output
+        if: inputs.shell && always()
+        continue-on-error: true
+        run: |
+          # Find shell scripts and run shellcheck with JSON output
+          find ${{ inputs.shellcheck-paths }} -type f \( -name "*.sh" -o -name "*.bash" \) -print0 2>/dev/null | \
+            xargs -0 shellcheck --format=json ${{ inputs.shellcheck-args }} > .lint-results/shellcheck.json 2>&1 || true
 
       # YAML Linting with yamllint
       - name: Install yamllint
@@ -207,8 +241,14 @@ jobs:
         run: |
           echo "::group::yamllint Output"
           if [[ -n "${{ inputs.yamllint-config }}" ]]; then
+            # Output parseable format for artifacts
+            yamllint -f parsable -c "${{ inputs.yamllint-config }}" ${{ inputs.yamllint-args }} > .lint-results/yamllint.txt 2>&1 || true
+            # Run again for console output
             yamllint -c "${{ inputs.yamllint-config }}" ${{ inputs.yamllint-args }}
           else
+            # Output parseable format for artifacts
+            yamllint -f parsable ${{ inputs.yamllint-args }} > .lint-results/yamllint.txt 2>&1 || true
+            # Run again for console output
             yamllint ${{ inputs.yamllint-args }}
           fi
           echo "::endgroup::"
@@ -229,7 +269,7 @@ jobs:
           # Handle both single chart and multiple charts in directory
           CHART_PATH="${{ inputs.helm-chart-path }}"
           if [[ -f "${CHART_PATH}/Chart.yaml" ]]; then
-            helm lint "${CHART_PATH}" ${{ inputs.helm-args }}
+            helm lint "${CHART_PATH}" ${{ inputs.helm-args }} 2>&1 | tee .lint-results/helm-lint.txt
           else
             # Find all charts in the directory
             found_charts=0
@@ -237,7 +277,7 @@ jobs:
               if [[ -f "$chart" ]]; then
                 chart_dir=$(dirname "$chart")
                 echo "Linting chart: $chart_dir"
-                helm lint "$chart_dir" ${{ inputs.helm-args }}
+                helm lint "$chart_dir" ${{ inputs.helm-args }} 2>&1 | tee -a .lint-results/helm-lint.txt
                 found_charts=1
               fi
             done
@@ -246,6 +286,16 @@ jobs:
             fi
           fi
           echo "::endgroup::"
+
+      # Upload Lint Artifacts
+      - name: Upload Lint Artifacts
+        if: always() && inputs.upload-artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: .lint-results/
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: ignore
 
       # Generate Summary
       - name: Generate Summary

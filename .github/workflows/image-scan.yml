@@ -59,6 +59,11 @@ on:
         required: false
         type: string
         default: 'trivy-scan-results'
+      artifact-retention-days:
+        description: 'Number of days to retain scan artifacts'
+        required: false
+        type: number
+        default: 30
 
       # Trivy configuration
       trivy-version:
@@ -259,7 +264,7 @@ jobs:
         continue-on-error: true  # Don't fail if SARIF upload fails
 
       - name: Upload Scan Artifacts
-        if: inputs.upload-artifact
+        if: always() && inputs.upload-artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact-name }}
@@ -267,7 +272,7 @@ jobs:
             trivy-results.json
             trivy-results.sarif
             trivy-table.txt
-          retention-days: 30
+          retention-days: ${{ inputs.artifact-retention-days }}
           if-no-files-found: ignore
 
       - name: Determine Result

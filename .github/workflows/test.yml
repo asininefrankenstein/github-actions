@@ -244,6 +244,8 @@ jobs:
               EXIT_CODE=${PIPESTATUS[0]}
               # Convert to JSON format for summary
               go tool cover -func=.test-results/coverage.out > .test-results/coverage-summary.txt 2>/dev/null || true
+              # Generate HTML coverage report
+              go tool cover -html=.test-results/coverage.out -o .test-results/coverage.html 2>/dev/null || true
             else
               go test -v $TEST_ARGS $TEST_PACKAGES 2>&1 | tee .test-results/output.txt
               EXIT_CODE=${PIPESTATUS[0]}
