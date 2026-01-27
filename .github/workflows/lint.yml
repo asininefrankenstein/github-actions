@@ -299,7 +299,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact-name }}
-          path: ${{ github.workspace }}/${{ inputs.working-directory }}/.lint-results/
+          path: ${{ inputs.working-directory == '.' && format('{0}/.lint-results/', github.workspace) || format('{0}/{1}/.lint-results/', github.workspace, inputs.working-directory) }}
           retention-days: ${{ inputs.artifact-retention-days }}
           if-no-files-found: ignore
 
