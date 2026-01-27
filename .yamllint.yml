@@ -1,4 +1,3 @@
----
 # yamllint configuration for GitHub Actions workflows
 extends: default
 
@@ -7,10 +6,8 @@ rules:
   document-start:
     present: false
 
-  # Relax line length for long GitHub Actions expressions
-  line-length:
-    max: 120
-    level: warning
+  # Disable line length check - GitHub Actions expressions are often long
+  line-length: disable
 
   # Allow yes/no and on/off for truthy values (common in GitHub Actions)
   truthy:
