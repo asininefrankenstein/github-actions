@@ -288,12 +288,18 @@ jobs:
           echo "::endgroup::"
 
       # Upload Lint Artifacts
+      - name: List lint results
+        if: always()
+        run: |
+          echo "Contents of .lint-results/:"
+          ls -la .lint-results/ 2>/dev/null || echo "Directory does not exist or is empty"
+
       - name: Upload Lint Artifacts
         if: always() && inputs.upload-artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact-name }}
-          path: .lint-results/
+          path: ${{ inputs.working-directory }}/.lint-results/
           retention-days: ${{ inputs.artifact-retention-days }}
           if-no-files-found: ignore
 
