@@ -189,7 +189,7 @@ jobs:
       digest: ${{ steps.single-output.outputs.digest || '' }}
       imageid: ${{ steps.single-output.outputs.imageid || '' }}
       metadata: ${{ steps.single-output.outputs.metadata || '' }}
-      tags: ${{ steps.meta.outputs.tags }}
+      tags: ${{ inputs.tags || steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       version: ${{ steps.meta.outputs.version }}
     steps:
@@ -322,7 +322,7 @@ jobs:
       digest: ${{ steps.inspect.outputs.digest }}
       imageid: ${{ steps.inspect.outputs.imageid }}
       metadata: ${{ steps.inspect.outputs.metadata }}
-      tags: ${{ steps.meta.outputs.tags }}
+      tags: ${{ inputs.tags || steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       version: ${{ steps.meta.outputs.version }}
     steps:
