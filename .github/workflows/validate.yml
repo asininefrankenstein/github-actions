@@ -36,19 +36,18 @@ jobs:
 
           ISSUES=0
 
-          # Pattern: docker buildx imagetools inspect with JSON format to GITHUB_OUTPUT
+          # Pattern: docker buildx imagetools inspect with JSON format
           # Should use: | jq -c . to compact to single line
           while IFS= read -r file; do
-            # Check for imagetools inspect with json format going to GITHUB_OUTPUT
-            if grep -n "imagetools inspect" "$file" | grep -q "json"; then
-              # Verify it uses jq -c
-              LINE_NUM=$(grep -n "imagetools inspect" "$file" | grep "json" | cut -d: -f1)
-              CONTEXT=$(sed -n "${LINE_NUM}p" "$file")
-              if ! echo "$CONTEXT" | grep -q "jq -c"; then
-                echo "::warning file=${file},line=${LINE_NUM}::JSON output may need 'jq -c' to avoid multi-line GITHUB_OUTPUT issues"
-                ISSUES=$((ISSUES + 1))
+            # Check each line with imagetools inspect and json format
+            while IFS=: read -r line_num content; do
+              # Skip if already using jq -c
+              if echo "$content" | grep -q "jq -c"; then
+                continue
               fi
-            fi
+              echo "::warning file=${file},line=${line_num}::JSON output may need 'jq -c' to avoid multi-line GITHUB_OUTPUT issues"
+              ISSUES=$((ISSUES + 1))
+            done < <(grep -n "imagetools inspect.*json" "$file" 2>/dev/null || true)
           done < <(find .github/workflows .github/actions -name "*.yml" 2>/dev/null)
 
           if [[ $ISSUES -gt 0 ]]; then
@@ -57,6 +56,8 @@ jobs:
             echo "Multi-line JSON to \$GITHUB_OUTPUT breaks parsing."
             echo "Use 'jq -c .' to compact JSON or heredoc syntax for multi-line values."
           fi
+
+          echo "Multi-line output check complete"
 
       - name: Validate workflow structure
         run: |
@@ -82,4 +83,4 @@ jobs:
           done
 
           echo ""
-          echo "✅ All structure checks passed"
+          echo "All structure checks passed"
