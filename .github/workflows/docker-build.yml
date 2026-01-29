@@ -377,8 +377,8 @@ jobs:
           echo "AMD64 digest: ${AMD64_DIGEST}"
           echo "ARM64 digest: ${ARM64_DIGEST}"
 
-          # Build tag arguments
-          TAGS="${{ steps.meta.outputs.tags }}"
+          # Build tag arguments - use custom tags if provided, otherwise metadata tags
+          TAGS="${{ inputs.tags || steps.meta.outputs.tags }}"
           TAGARGS=""
           while IFS= read -r tag; do
             [[ -n "${tag}" ]] && TAGARGS="${TAGARGS} --tag ${tag}"
