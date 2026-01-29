@@ -109,6 +109,71 @@ on:
         value: ${{ jobs.build.outputs.version }}
 
 jobs:
+  # Validate platforms and determine build strategy
+  validate:
+    name: Validate Platforms
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.parse.outputs.platforms }}
+      strategy: ${{ steps.parse.outputs.strategy }}
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - name: Parse platforms
+        id: parse
+        run: |
+          PLATFORMS="${{ inputs.platforms }}"
+
+          # Check for empty input
+          if [[ -z "${PLATFORMS}" ]]; then
+            echo "::error::Platforms input is required"
+            exit 1
+          fi
+
+          # Normalize: remove spaces, lowercase, remove trailing commas
+          PLATFORMS=$(echo "${PLATFORMS}" | tr -d ' ' | tr '[:upper:]' '[:lower:]' | sed 's/,$//')
+
+          # Validate each platform
+          IFS=',' read -ra PLATFORM_ARRAY <<< "${PLATFORMS}"
+          VALID_PLATFORMS=("linux/amd64" "linux/arm64")
+
+          # Deduplicate platforms
+          PLATFORM_ARRAY=($(printf '%s\n' "${PLATFORM_ARRAY[@]}" | sort -u))
+
+          for platform in "${PLATFORM_ARRAY[@]}"; do
+            if [[ -z "${platform}" ]]; then
+              continue  # Skip empty entries
+            fi
+            if [[ ! " ${VALID_PLATFORMS[*]} " =~ " ${platform} " ]]; then
+              echo "::error::Unsupported platform: ${platform}. Only linux/amd64 and linux/arm64 are supported."
+              exit 1
+            fi
+          done
+
+          # Determine strategy
+          PLATFORM_COUNT=${#PLATFORM_ARRAY[@]}
+
+          if [[ ${PLATFORM_COUNT} -eq 1 ]]; then
+            echo "strategy=single" >> "$GITHUB_OUTPUT"
+            echo "platforms=${PLATFORM_ARRAY[0]}" >> "$GITHUB_OUTPUT"
+
+            # Single platform matrix
+            if [[ "${PLATFORM_ARRAY[0]}" == "linux/amd64" ]]; then
+              echo 'matrix={"include":[{"platform":"linux/amd64","runner":"'"${{ inputs.amd64-runner }}"'"}]}' >> "$GITHUB_OUTPUT"
+            else
+              echo 'matrix={"include":[{"platform":"linux/arm64","runner":"'"${{ inputs.arm64-runner }}"'"}]}' >> "$GITHUB_OUTPUT"
+            fi
+          elif [[ ${PLATFORM_COUNT} -eq 2 ]]; then
+            echo "strategy=multi" >> "$GITHUB_OUTPUT"
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[{"platform":"linux/amd64","runner":"'"${{ inputs.amd64-runner }}"'"},{"platform":"linux/arm64","runner":"'"${{ inputs.arm64-runner }}"'"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Invalid platform configuration"
+            exit 1
+          fi
+
+          echo "Platforms: ${PLATFORM_ARRAY[*]}"
+          echo "Strategy: $(grep strategy "$GITHUB_OUTPUT" | cut -d= -f2)"
+
   build:
     name: Build and Push
     runs-on: ${{ inputs.runs-on }}
