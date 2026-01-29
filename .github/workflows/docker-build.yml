@@ -69,11 +69,21 @@ on:
         required: false
         type: string
         default: ''
-      runs-on:
-        description: 'Runner label to use'
+      amd64-runner:
+        description: 'Runner label for AMD64 builds'
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: 'ubuntu-24.04'
+      arm64-runner:
+        description: 'Runner label for ARM64 builds'
+        required: false
+        type: string
+        default: 'ubuntu-24.04-arm'
+      runs-on:
+        description: 'DEPRECATED: Use amd64-runner instead. Runner label for single-arch builds.'
+        required: false
+        type: string
+        default: 'ubuntu-24.04'
     secrets:
       registry-password:
         description: 'Registry password/token (defaults to GITHUB_TOKEN for ghcr.io)'
