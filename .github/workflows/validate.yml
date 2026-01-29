@@ -1,0 +1,85 @@
+name: Validate Workflows
+# CI workflow to validate GitHub Actions workflows and catch common issues
+
+on:
+  push:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - 'scripts/validate-workflows.sh'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - 'scripts/validate-workflows.sh'
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Validate YAML syntax
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: disable}}" \
+            .github/workflows/*.yml
+
+      - name: Check for multi-line GITHUB_OUTPUT issues
+        run: |
+          # Check for JSON-producing commands that might output multi-line content
+          # without proper handling (jq -c or heredoc)
+
+          ISSUES=0
+
+          # Pattern: docker buildx imagetools inspect with JSON format to GITHUB_OUTPUT
+          # Should use: | jq -c . to compact to single line
+          while IFS= read -r file; do
+            # Check for imagetools inspect with json format going to GITHUB_OUTPUT
+            if grep -n "imagetools inspect" "$file" | grep -q "json"; then
+              # Verify it uses jq -c
+              LINE_NUM=$(grep -n "imagetools inspect" "$file" | grep "json" | cut -d: -f1)
+              CONTEXT=$(sed -n "${LINE_NUM}p" "$file")
+              if ! echo "$CONTEXT" | grep -q "jq -c"; then
+                echo "::warning file=${file},line=${LINE_NUM}::JSON output may need 'jq -c' to avoid multi-line GITHUB_OUTPUT issues"
+                ISSUES=$((ISSUES + 1))
+              fi
+            fi
+          done < <(find .github/workflows .github/actions -name "*.yml" 2>/dev/null)
+
+          if [[ $ISSUES -gt 0 ]]; then
+            echo ""
+            echo "Found $ISSUES potential issue(s). Review warnings above."
+            echo "Multi-line JSON to \$GITHUB_OUTPUT breaks parsing."
+            echo "Use 'jq -c .' to compact JSON or heredoc syntax for multi-line values."
+          fi
+
+      - name: Validate workflow structure
+        run: |
+          # Basic structure checks
+          for file in .github/workflows/*.yml; do
+            echo "Checking: $file"
+
+            # Check that reusable workflows have proper on: workflow_call
+            if grep -q "workflow_call:" "$file"; then
+              echo "  ✓ Reusable workflow detected"
+            fi
+
+            # Check for deprecated patterns
+            if grep -q "set-output" "$file"; then
+              echo "::error file=${file}::Uses deprecated set-output. Use GITHUB_OUTPUT instead."
+              exit 1
+            fi
+
+            if grep -q "save-state" "$file"; then
+              echo "::error file=${file}::Uses deprecated save-state. Use GITHUB_STATE instead."
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "✅ All structure checks passed"
