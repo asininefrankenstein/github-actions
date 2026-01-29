@@ -94,6 +94,21 @@ on:
         required: false
         type: string
         default: ''
+      json:
+        description: 'Enable JSON linting with jq'
+        required: false
+        type: boolean
+        default: false
+      json-paths:
+        description: 'Paths/globs to check for JSON files (space-separated)'
+        required: false
+        type: string
+        default: '.'
+      json-exclude:
+        description: 'Patterns to exclude from JSON linting (space-separated)'
+        required: false
+        type: string
+        default: 'node_modules .git'
       working-directory:
         description: 'Working directory for all lint commands'
         required: false
@@ -135,6 +150,9 @@ on:
       helm-status:
         description: 'Helm lint result: success, failure, or skipped'
         value: ${{ jobs.lint.outputs.helm-status }}
+      json-status:
+        description: 'JSON lint result: success, failure, or skipped'
+        value: ${{ jobs.lint.outputs.json-status }}
       overall-status:
         description: 'Overall lint result: success or failure'
         value: ${{ jobs.lint.outputs.overall-status }}
@@ -149,6 +167,7 @@ jobs:
       shell-status: ${{ steps.shell-lint.outcome || 'skipped' }}
       yaml-status: ${{ steps.yaml-lint.outcome || 'skipped' }}
       helm-status: ${{ steps.helm-lint.outcome || 'skipped' }}
+      json-status: ${{ steps.json-lint.outcome || 'skipped' }}
       overall-status: ${{ steps.summary.outputs.status }}
     defaults:
       run:
@@ -287,6 +306,50 @@ jobs:
           fi
           echo "::endgroup::"
 
+      # JSON Linting with jq
+      - name: Run JSON lint
+        id: json-lint
+        if: inputs.json
+        continue-on-error: ${{ !inputs.fail-fast }}
+        run: |
+          echo "::group::JSON Lint Output"
+
+          # Build exclude pattern for find
+          EXCLUDE_ARGS=""
+          for pattern in ${{ inputs.json-exclude }}; do
+            EXCLUDE_ARGS="${EXCLUDE_ARGS} -path '*/${pattern}/*' -prune -o"
+          done
+
+          # Find and validate JSON files
+          FAILED=0
+          CHECKED=0
+          RESULTS="[]"
+
+          while IFS= read -r -d '' file; do
+            CHECKED=$((CHECKED + 1))
+            if ERROR=$(jq empty "$file" 2>&1); then
+              echo "✓ $file"
+            else
+              echo "✗ $file"
+              echo "  Error: $ERROR"
+              FAILED=$((FAILED + 1))
+              RESULTS=$(echo "$RESULTS" | jq --arg file "$file" --arg error "$ERROR" '. + [{"file": $file, "error": $error}]')
+            fi
+          done < <(eval "find ${{ inputs.json-paths }} ${EXCLUDE_ARGS} -type f -name '*.json' -print0 2>/dev/null")
+
+          # Save results
+          echo "$RESULTS" > .lint-results/json-lint.json
+
+          echo ""
+          echo "Checked ${CHECKED} JSON files, ${FAILED} failed"
+
+          echo "::endgroup::"
+
+          if [[ ${FAILED} -gt 0 ]]; then
+            echo "::error::${FAILED} JSON file(s) contain invalid syntax"
+            exit 1
+          fi
+
       # Upload Lint Artifacts
       - name: List lint results
         if: always()
@@ -374,6 +437,18 @@ jobs:
             fi
           else
             echo "| :wheel_of_dharma: Helm | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # JSON
+          if [[ "${{ inputs.json }}" == "true" ]]; then
+            if [[ "${{ steps.json-lint.outcome }}" == "success" ]]; then
+              echo "| :card_file_box: JSON (jq) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| :card_file_box: JSON (jq) | :x: Failed |" >> $GITHUB_STEP_SUMMARY
+              OVERALL="failure"
+            fi
+          else
+            echo "| :card_file_box: JSON (jq) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

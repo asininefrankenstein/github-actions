@@ -18,7 +18,7 @@ Detailed documentation for all reusable workflows in this repository.
 
 ## Lint Workflow
 
-Multi-language linting supporting Python (ruff), Go (golangci-lint), Shell (shellcheck), YAML (yamllint), and Helm charts.
+Multi-language linting supporting Python (ruff), Go (golangci-lint), Shell (shellcheck), YAML (yamllint), JSON (jq), and Helm charts.
 
 **Usage:**
 
@@ -43,6 +43,10 @@ jobs:
 
       yaml: true
       yamllint-args: '.github/'
+
+      json: true
+      json-paths: '.'
+      json-exclude: 'node_modules .git'
 
       helm: true
       helm-chart-path: 'charts/'
@@ -73,6 +77,9 @@ jobs:
 | `helm` | boolean | `false` | Enable Helm chart linting |
 | `helm-chart-path` | string | `'charts/'` | Path to Helm chart(s) |
 | `helm-args` | string | `''` | Additional helm lint arguments |
+| `json` | boolean | `false` | Enable JSON linting with jq |
+| `json-paths` | string | `'.'` | Paths to check for JSON files (space-separated) |
+| `json-exclude` | string | `'node_modules .git'` | Patterns to exclude (space-separated) |
 | `working-directory` | string | `'.'` | Working directory for all commands |
 | `fail-fast` | boolean | `true` | Stop on first linter failure |
 | `upload-artifact` | boolean | `true` | Upload lint results as artifact |
@@ -88,6 +95,7 @@ jobs:
 | `shell-status` | Shell lint result: success, failure, or skipped |
 | `yaml-status` | YAML lint result: success, failure, or skipped |
 | `helm-status` | Helm lint result: success, failure, or skipped |
+| `json-status` | JSON lint result: success, failure, or skipped |
 | `overall-status` | Overall lint result: success or failure |
 
 ---
@@ -365,6 +373,7 @@ jobs:
 | `prerelease` | boolean | `false` | Mark release as prerelease |
 | `hooks` | string | `''` | Hooks to run (e.g., goreleaser, npm-binary-releaser) |
 | `config-file` | string | `''` | Path to .semrelrc config file |
+| `validate-config` | boolean | `true` | Validate .semrelrc JSON syntax before release |
 | `runs-on` | string | `'ubuntu-latest'` | Runner label |
 | `use-github-app` | boolean | `false` | Use GitHub App authentication |
 

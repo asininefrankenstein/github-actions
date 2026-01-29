@@ -51,6 +51,11 @@ on:
         required: false
         type: string
         default: ''
+      validate-config:
+        description: 'Validate .semrelrc JSON syntax before release'
+        required: false
+        type: boolean
+        default: true
       runs-on:
         description: 'Runner label to use'
         required: false
@@ -140,6 +145,26 @@ jobs:
             git tag -l 'v*' --sort=-v:refname | head -5 || true
           fi
 
+      - name: Validate .semrelrc config
+        if: inputs.validate-config
+        run: |
+          # Determine which config file to validate
+          CONFIG_FILE="${{ inputs.config-file }}"
+          if [[ -z "${CONFIG_FILE}" ]]; then
+            CONFIG_FILE=".semrelrc"
+          fi
+
+          if [[ -f "${CONFIG_FILE}" ]]; then
+            echo "Validating ${CONFIG_FILE} JSON syntax..."
+            if ! jq empty "${CONFIG_FILE}" 2>&1; then
+              echo "::error::${CONFIG_FILE} contains invalid JSON. Note: go-semantic-release requires JSON format, not YAML."
+              exit 1
+            fi
+            echo "✓ ${CONFIG_FILE} is valid JSON"
+          else
+            echo "ℹ️ No config file found at ${CONFIG_FILE} (using defaults)"
+          fi
+
       - name: Generate GitHub App Token
         id: app-token
         if: ${{ inputs.use-github-app }}
@@ -199,13 +224,6 @@ jobs:
           echo "Semantic release arguments: ${ARGS}"
           echo "args=${ARGS}" >> $GITHUB_OUTPUT
 
-      - name: Capture current version
-        id: before
-        run: |
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
-          echo "latest-tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "Current latest tag: ${LATEST_TAG:-none}"
-
       - name: Run go-semantic-release
         id: semrel
         uses: go-semantic-release/action@v1
@@ -221,36 +239,28 @@ jobs:
       - name: Process release results
         id: release
         run: |
-          # Fetch tags to get the latest
-          git fetch --tags 2>/dev/null || true
+          # Use go-semantic-release action outputs directly (no race condition)
+          VERSION="${{ steps.semrel.outputs.version }}"
 
-          BEFORE_TAG="${{ steps.before.outputs.latest-tag }}"
-          AFTER_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
+          if [[ -n "${VERSION}" ]]; then
+            # Construct version tag (action provides version without 'v' prefix)
+            VERSION_TAG="v${VERSION}"
 
-          echo "Before: ${BEFORE_TAG:-none}"
-          echo "After: ${AFTER_TAG:-none}"
-
-          if [[ -n "${AFTER_TAG}" ]] && [[ "${AFTER_TAG}" != "${BEFORE_TAG}" ]]; then
             # New release created
             echo "new-release-published=true" >> $GITHUB_OUTPUT
-            echo "new-release-version=${AFTER_TAG}" >> $GITHUB_OUTPUT
-            echo "new-release-git-tag=${AFTER_TAG}" >> $GITHUB_OUTPUT
+            echo "new-release-version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+            echo "new-release-git-tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
 
             # Get git commit SHA
             GIT_HEAD=$(git rev-parse HEAD)
             echo "new-release-git-head=${GIT_HEAD}" >> $GITHUB_OUTPUT
 
-            # Parse version parts (remove 'v' prefix)
-            VERSION_CLEAN=$(echo "${AFTER_TAG}" | sed 's/^v//')
-            MAJOR=$(echo "${VERSION_CLEAN}" | cut -d. -f1)
-            MINOR=$(echo "${VERSION_CLEAN}" | cut -d. -f2)
-            PATCH=$(echo "${VERSION_CLEAN}" | cut -d. -f3)
+            # Use action's direct version outputs
+            echo "new-release-major-version=${{ steps.semrel.outputs.version_major }}" >> $GITHUB_OUTPUT
+            echo "new-release-minor-version=${{ steps.semrel.outputs.version_minor }}" >> $GITHUB_OUTPUT
+            echo "new-release-patch-version=${{ steps.semrel.outputs.version_patch }}" >> $GITHUB_OUTPUT
 
-            echo "new-release-major-version=${MAJOR}" >> $GITHUB_OUTPUT
-            echo "new-release-minor-version=${MINOR}" >> $GITHUB_OUTPUT
-            echo "new-release-patch-version=${PATCH}" >> $GITHUB_OUTPUT
-
-            echo "✅ New version released: ${AFTER_TAG}"
+            echo "✅ New version released: ${VERSION_TAG}"
           else
             # No release created
             echo "new-release-published=false" >> $GITHUB_OUTPUT
@@ -294,11 +304,7 @@ jobs:
             echo "| New Version | _None_ |" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [[ -n "${{ steps.before.outputs.latest-tag }}" ]]; then
-            echo "| Previous Version | \`${{ steps.before.outputs.latest-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Previous Version | _None_ |" >> $GITHUB_STEP_SUMMARY
-          fi
+          # Note: Previous version tracking removed - using action outputs directly
 
           echo "| Dry Run | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Token Type | ${{ steps.token.outputs.token-type }} |" >> $GITHUB_STEP_SUMMARY
@@ -317,5 +323,4 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "- [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
             echo "- [View Tag](https://github.com/${{ github.repository }}/tree/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
-            echo "- [Compare Changes](https://github.com/${{ github.repository }}/compare/${{ steps.before.outputs.latest-tag }}...${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
           fi
