@@ -91,22 +91,22 @@ on:
     outputs:
       imageid:
         description: 'Image ID'
-        value: ${{ jobs.build.outputs.imageid }}
+        value: ${{ jobs.merge.outputs.imageid || jobs.build.outputs.imageid }}
       digest:
         description: 'Image digest'
-        value: ${{ jobs.build.outputs.digest }}
+        value: ${{ jobs.merge.outputs.digest || jobs.build.outputs.digest }}
       metadata:
         description: 'Build result metadata'
-        value: ${{ jobs.build.outputs.metadata }}
+        value: ${{ jobs.merge.outputs.metadata || jobs.build.outputs.metadata }}
       tags:
         description: 'Generated tags'
-        value: ${{ jobs.build.outputs.tags }}
+        value: ${{ jobs.merge.outputs.tags || jobs.build.outputs.tags }}
       labels:
         description: 'Generated labels'
-        value: ${{ jobs.build.outputs.labels }}
+        value: ${{ jobs.merge.outputs.labels || jobs.build.outputs.labels }}
       version:
         description: 'Generated version'
-        value: ${{ jobs.build.outputs.version }}
+        value: ${{ jobs.merge.outputs.version || jobs.build.outputs.version }}
 
 jobs:
   # Validate platforms and determine build strategy
@@ -308,3 +308,120 @@ jobs:
           if [[ -n "${{ steps.build-single.outputs.digest }}" ]]; then
             echo "**Digest:** \`${{ steps.build-single.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           fi
+
+  # Merge platform images into multi-arch manifest (only for multi-platform builds)
+  merge:
+    name: Create Multi-arch Manifest
+    if: needs.validate.outputs.strategy == 'multi' && inputs.push == true
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.inspect.outputs.digest }}
+      imageid: ${{ steps.inspect.outputs.imageid }}
+      metadata: ${{ steps.inspect.outputs.metadata }}
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Determine image name
+        id: image-name
+        run: |
+          if [[ -n "${{ inputs.image-name }}" ]]; then
+            echo "name=${{ inputs.image-name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.repository }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ steps.image-name.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ inputs.registry }}/${{ steps.image-name.outputs.name }}"
+
+          # Read digests
+          AMD64_DIGEST=$(cat amd64 2>/dev/null || echo "")
+          ARM64_DIGEST=$(cat arm64 2>/dev/null || echo "")
+
+          echo "AMD64 digest: ${AMD64_DIGEST}"
+          echo "ARM64 digest: ${ARM64_DIGEST}"
+
+          # Build tag arguments
+          TAGS="${{ steps.meta.outputs.tags }}"
+          TAGARGS=""
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] && TAGARGS="${TAGARGS} --tag ${tag}"
+          done <<< "${TAGS}"
+
+          # Create and push multi-arch manifest
+          docker buildx imagetools create ${TAGARGS} \
+            "${IMAGE}@${AMD64_DIGEST}" \
+            "${IMAGE}@${ARM64_DIGEST}"
+
+      - name: Inspect manifest
+        id: inspect
+        run: |
+          IMAGE="${{ inputs.registry }}/${{ steps.image-name.outputs.name }}"
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+
+          DIGEST=$(docker buildx imagetools inspect "${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "imageid=${DIGEST}" >> $GITHUB_OUTPUT
+
+          METADATA=$(docker buildx imagetools inspect "${TAG}" --format '{{json .}}')
+          echo "metadata=${METADATA}" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary
+        run: |
+          echo "## Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo ":white_check_mark: **Multi-arch Build Successful**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.image-name.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platforms | \`linux/amd64, linux/arm64\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | Native runners (parallel) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.inspect.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tags" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
