@@ -171,12 +171,12 @@ jobs:
           echo "has-credentials=$HAS_CREDS" >> $GITHUB_OUTPUT
 
       - name: Log in to Registry
-        if: steps.image.outputs.has-credentials == 'true'
+        if: steps.image.outputs.has-credentials == 'true' || steps.image.outputs.registry == 'ghcr.io'
         uses: docker/login-action@v3
         with:
           registry: ${{ steps.image.outputs.registry }}
-          username: ${{ secrets.registry-username }}
-          password: ${{ secrets.registry-password }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
 
       - name: Run Trivy Vulnerability Scanner
         id: trivy
