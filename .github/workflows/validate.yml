@@ -2,11 +2,6 @@ name: Validate Workflows
 # CI workflow to validate GitHub Actions workflows and catch common issues
 
 on:
-  push:
-    paths:
-      - '.github/workflows/**'
-      - '.github/actions/**'
-      - 'scripts/validate-workflows.sh'
   pull_request:
     paths:
       - '.github/workflows/**'
@@ -70,15 +65,17 @@ jobs:
               echo "  - Reusable workflow detected"
             fi
 
-            # Check for deprecated patterns
-            if grep -q "set-output" "$file"; then
-              echo "::error file=${file}::Uses deprecated set-output. Use GITHUB_OUTPUT instead."
-              exit 1
-            fi
+            # Check for deprecated patterns (exclude this file to avoid false positive)
+            if [[ "$file" != ".github/workflows/validate.yml" ]]; then
+              if grep -q "::set-output" "$file"; then
+                echo "::error file=${file}::Uses deprecated set-output. Use GITHUB_OUTPUT instead."
+                exit 1
+              fi
 
-            if grep -q "save-state" "$file"; then
-              echo "::error file=${file}::Uses deprecated save-state. Use GITHUB_STATE instead."
-              exit 1
+              if grep -q "::save-state" "$file"; then
+                echo "::error file=${file}::Uses deprecated save-state. Use GITHUB_STATE instead."
+                exit 1
+              fi
             fi
           done
 
