@@ -146,8 +146,13 @@ jobs:
           if [[ -n "${{ inputs.app-version }}" ]]; then
             APP_VERSION="${{ inputs.app-version }}"
           else
-            # Default to version with v prefix
-            APP_VERSION="v${{ steps.version.outputs.version }}"
+            VERSION="${{ steps.version.outputs.version }}"
+            # Only add v prefix if not already present
+            if [[ "${VERSION}" == v* ]]; then
+              APP_VERSION="${VERSION}"
+            else
+              APP_VERSION="v${VERSION}"
+            fi
           fi
           echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
           echo "Determined app version: ${APP_VERSION}"
