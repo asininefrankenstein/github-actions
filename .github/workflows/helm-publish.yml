@@ -33,6 +33,11 @@ on:
         required: false
         type: string
         default: ''
+      app-version:
+        description: 'App version for the chart (defaults to version with v prefix)'
+        required: false
+        type: string
+        default: ''
       update-dependencies:
         description: 'Run helm dependency update before publishing'
         required: false
@@ -59,6 +64,9 @@ on:
       chart-version:
         description: 'Published chart version'
         value: ${{ jobs.publish.outputs.chart-version }}
+      chart-app-version:
+        description: 'Published chart app version'
+        value: ${{ jobs.publish.outputs.chart-app-version }}
       chart-ref:
         description: 'Full OCI reference to the published chart'
         value: ${{ jobs.publish.outputs.chart-ref }}
@@ -73,6 +81,7 @@ jobs:
     outputs:
       chart-name: ${{ steps.chart-info.outputs.name }}
       chart-version: ${{ steps.chart-info.outputs.version }}
+      chart-app-version: ${{ steps.chart-info.outputs.app-version }}
       chart-ref: ${{ steps.chart-info.outputs.ref }}
     steps:
       - name: Checkout
@@ -131,6 +140,18 @@ jobs:
           echo "Updating Helm dependencies for ${{ steps.chart-path.outputs.path }}..."
           helm dependency update "${{ steps.chart-path.outputs.path }}"
 
+      - name: Determine app version
+        id: app-version
+        run: |
+          if [[ -n "${{ inputs.app-version }}" ]]; then
+            APP_VERSION="${{ inputs.app-version }}"
+          else
+            # Default to version with v prefix
+            APP_VERSION="v${{ steps.version.outputs.version }}"
+          fi
+          echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "Determined app version: ${APP_VERSION}"
+
       - name: Publish Helm Chart
         id: publish
         uses: appany/helm-oci-chart-releaser@v0.5.0
@@ -138,6 +159,7 @@ jobs:
           name: ${{ inputs.chart-name }}
           repository: ${{ steps.repository.outputs.owner }}
           tag: ${{ steps.version.outputs.version }}
+          app_version: ${{ steps.app-version.outputs.app-version }}
           path: ${{ steps.chart-path.outputs.path }}
           registry: ${{ inputs.registry }}
           registry_username: ${{ inputs.registry-username || github.actor }}
@@ -148,6 +170,7 @@ jobs:
         run: |
           echo "name=${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
           echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "app-version=${{ steps.app-version.outputs.app-version }}" >> $GITHUB_OUTPUT
           echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
 
       - name: Generate Summary
@@ -169,6 +192,7 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Chart Name | \`${{ inputs.chart-name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| App Version | \`${{ steps.app-version.outputs.app-version }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Chart Path | \`${{ steps.chart-path.outputs.path }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Repository | \`${{ steps.repository.outputs.owner }}\` |" >> $GITHUB_STEP_SUMMARY
