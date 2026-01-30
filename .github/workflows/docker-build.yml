@@ -44,6 +44,11 @@ on:
         required: false
         type: string
         default: ''
+      version:
+        description: 'Version string for OCI labels (e.g., v0.1.4). Overrides auto-detected version.'
+        required: false
+        type: string
+        default: ''
       labels:
         description: 'Custom labels (newline-separated KEY=VALUE pairs)'
         required: false
@@ -227,6 +232,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=sha-
+          labels: |
+            ${{ inputs.version && format('org.opencontainers.image.version={0}', inputs.version) || '' }}
 
       # Single platform: push with tags directly
       - name: Build and Push (single platform)
@@ -364,6 +371,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=sha-
+          labels: |
+            ${{ inputs.version && format('org.opencontainers.image.version={0}', inputs.version) || '' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
