@@ -137,25 +137,25 @@ on:
     outputs:
       python-status:
         description: 'Python lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.python-status }}
+        value: ${{ jobs.summary.outputs.python-status }}
       go-status:
         description: 'Go lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.go-status }}
+        value: ${{ jobs.summary.outputs.go-status }}
       shell-status:
         description: 'Shell lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.shell-status }}
+        value: ${{ jobs.summary.outputs.shell-status }}
       yaml-status:
         description: 'YAML lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.yaml-status }}
+        value: ${{ jobs.summary.outputs.yaml-status }}
       helm-status:
         description: 'Helm lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.helm-status }}
+        value: ${{ jobs.summary.outputs.helm-status }}
       json-status:
         description: 'JSON lint result: success, failure, or skipped'
-        value: ${{ jobs.lint.outputs.json-status }}
+        value: ${{ jobs.summary.outputs.json-status }}
       overall-status:
         description: 'Overall lint result: success or failure'
-        value: ${{ jobs.lint.outputs.overall-status }}
+        value: ${{ jobs.summary.outputs.overall-status }}
 
 jobs:
   setup:
@@ -420,3 +420,137 @@ jobs:
           retention-days: ${{ inputs.artifact-retention-days }}
           if-no-files-found: ignore
           include-hidden-files: true
+
+  summary:
+    name: Lint Summary
+    needs: [setup, lint]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      python-status: ${{ steps.collect.outputs.python-status }}
+      go-status: ${{ steps.collect.outputs.go-status }}
+      shell-status: ${{ steps.collect.outputs.shell-status }}
+      yaml-status: ${{ steps.collect.outputs.yaml-status }}
+      helm-status: ${{ steps.collect.outputs.helm-status }}
+      json-status: ${{ steps.collect.outputs.json-status }}
+      overall-status: ${{ steps.collect.outputs.overall-status }}
+    steps:
+      - name: Collect Results
+        id: collect
+        run: |
+          MATRIX='${{ needs.setup.outputs.matrix }}'
+          LINT_RESULT='${{ needs.lint.result }}'
+
+          echo "python-status=skipped" >> $GITHUB_OUTPUT
+          echo "go-status=skipped" >> $GITHUB_OUTPUT
+          echo "shell-status=skipped" >> $GITHUB_OUTPUT
+          echo "yaml-status=skipped" >> $GITHUB_OUTPUT
+          echo "helm-status=skipped" >> $GITHUB_OUTPUT
+          echo "json-status=skipped" >> $GITHUB_OUTPUT
+
+          if [[ "${{ needs.setup.outputs.has-linters }}" == "true" ]]; then
+            if echo "$MATRIX" | jq -e '.linter | index("python")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "python-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "python-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+            if echo "$MATRIX" | jq -e '.linter | index("go")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "go-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "go-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+            if echo "$MATRIX" | jq -e '.linter | index("shell")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "shell-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "shell-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+            if echo "$MATRIX" | jq -e '.linter | index("yaml")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "yaml-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "yaml-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+            if echo "$MATRIX" | jq -e '.linter | index("helm")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "helm-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "helm-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+            if echo "$MATRIX" | jq -e '.linter | index("json")' > /dev/null; then
+              if [[ "$LINT_RESULT" == "success" ]]; then
+                echo "json-status=success" >> $GITHUB_OUTPUT
+              else
+                echo "json-status=failure" >> $GITHUB_OUTPUT
+              fi
+            fi
+          fi
+
+          if [[ "$LINT_RESULT" == "success" ]] || [[ "${{ needs.setup.outputs.has-linters }}" == "false" ]]; then
+            echo "overall-status=success" >> $GITHUB_OUTPUT
+          else
+            echo "overall-status=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Linter | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          case "${{ steps.collect.outputs.python-status }}" in
+            success) echo "| :snake: Python (ruff) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :snake: Python (ruff) | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :snake: Python (ruff) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          case "${{ steps.collect.outputs.go-status }}" in
+            success) echo "| :blue_square: Go (golangci-lint) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :blue_square: Go (golangci-lint) | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :blue_square: Go (golangci-lint) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          case "${{ steps.collect.outputs.shell-status }}" in
+            success) echo "| :shell: Shell (shellcheck) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :shell: Shell (shellcheck) | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :shell: Shell (shellcheck) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          case "${{ steps.collect.outputs.yaml-status }}" in
+            success) echo "| :page_facing_up: YAML (yamllint) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :page_facing_up: YAML (yamllint) | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :page_facing_up: YAML (yamllint) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          case "${{ steps.collect.outputs.helm-status }}" in
+            success) echo "| :wheel_of_dharma: Helm | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :wheel_of_dharma: Helm | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :wheel_of_dharma: Helm | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          case "${{ steps.collect.outputs.json-status }}" in
+            success) echo "| :card_file_box: JSON (jq) | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY ;;
+            failure) echo "| :card_file_box: JSON (jq) | :x: Failed |" >> $GITHUB_STEP_SUMMARY ;;
+            *) echo "| :card_file_box: JSON (jq) | :fast_forward: Skipped |" >> $GITHUB_STEP_SUMMARY ;;
+          esac
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.collect.outputs.overall-status }}" == "success" ]]; then
+            echo "**Overall Status:** :white_check_mark: All checks passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Overall Status:** :x: Some checks failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if linters failed
+        if: steps.collect.outputs.overall-status == 'failure'
+        run: exit 1
