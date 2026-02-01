@@ -158,6 +158,47 @@ on:
         value: ${{ jobs.lint.outputs.overall-status }}
 
 jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has-linters: ${{ steps.set-matrix.outputs.has-linters }}
+    steps:
+      - name: Build linter matrix
+        id: set-matrix
+        run: |
+          LINTERS="[]"
+
+          if [[ "${{ inputs.python }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["python"]')
+          fi
+          if [[ "${{ inputs.go }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["go"]')
+          fi
+          if [[ "${{ inputs.shell }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["shell"]')
+          fi
+          if [[ "${{ inputs.yaml }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["yaml"]')
+          fi
+          if [[ "${{ inputs.helm }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["helm"]')
+          fi
+          if [[ "${{ inputs.json }}" == "true" ]]; then
+            LINTERS=$(echo "$LINTERS" | jq -c '. + ["json"]')
+          fi
+
+          echo "matrix={\"linter\":$LINTERS}" >> $GITHUB_OUTPUT
+
+          if [[ "$LINTERS" == "[]" ]]; then
+            echo "has-linters=false" >> $GITHUB_OUTPUT
+          else
+            echo "has-linters=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Generated matrix: {\"linter\":$LINTERS}"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
