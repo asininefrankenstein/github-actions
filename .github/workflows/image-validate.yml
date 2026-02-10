@@ -1,0 +1,209 @@
+name: Image Validate
+# Reusable workflow for container image validation
+# Pulls an image and runs user-specified commands inside it to verify contents
+
+on:
+  workflow_call:
+    inputs:
+      # Image configuration
+      image-ref:
+        description: 'Image reference to validate (e.g., ghcr.io/owner/repo@sha256:...)'
+        required: true
+        type: string
+
+      # Validation configuration
+      command:
+        description: 'Shell command(s) to execute inside the container for validation'
+        required: true
+        type: string
+      shell:
+        description: 'Shell to use as entrypoint (e.g., /bin/sh, /bin/bash). Empty string uses image default entrypoint.'
+        required: false
+        type: string
+        default: '/bin/sh'
+      docker-args:
+        description: 'Additional arguments to pass to docker run (e.g., --env FOO=bar --network none)'
+        required: false
+        type: string
+        default: ''
+
+      # Runner configuration
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+    secrets:
+      registry-username:
+        description: 'Registry username for private images'
+        required: false
+      registry-password:
+        description: 'Registry password for private images'
+        required: false
+
+    outputs:
+      result:
+        description: 'Validation result: passed or failed'
+        value: ${{ jobs.validate.outputs.result }}
+      output:
+        description: 'Captured stdout/stderr from validation command'
+        value: ${{ jobs.validate.outputs.output }}
+
+jobs:
+  validate:
+    name: Validate Image
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: read  # For pulling private GHCR images
+    outputs:
+      result: ${{ steps.result.outputs.status }}
+      output: ${{ steps.run.outputs.output }}
+    steps:
+      - name: Determine Registry
+        id: image
+        run: |
+          IMAGE="${{ inputs.image-ref }}"
+          echo "ref=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "Validating image: ${IMAGE}"
+
+          # Determine registry from image ref
+          REGISTRY="docker.io"  # default
+          if [[ "${IMAGE}" == *"/"* ]]; then
+            FIRST_PART=$(echo "${IMAGE}" | cut -d/ -f1)
+            if [[ "${FIRST_PART}" == *"."* ]]; then
+              REGISTRY="${FIRST_PART}"
+            fi
+          fi
+
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "Detected registry: ${REGISTRY}"
+
+          # Check if credentials are provided
+          HAS_CREDS="false"
+          if [[ -n "${{ secrets.registry-username }}" ]] && [[ -n "${{ secrets.registry-password }}" ]]; then
+            HAS_CREDS="true"
+          fi
+          echo "has-credentials=${HAS_CREDS}" >> $GITHUB_OUTPUT
+
+      - name: Log in to Registry
+        if: steps.image.outputs.has-credentials == 'true' || steps.image.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.image.outputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - name: Pull Image
+        run: |
+          echo "Pulling image: ${{ steps.image.outputs.ref }}"
+          docker pull "${{ steps.image.outputs.ref }}"
+
+      - name: Run Validation
+        id: run
+        run: |
+          set +e  # Don't exit on error, we want to capture the exit code
+
+          SHELL_ARG="${{ inputs.shell }}"
+          IMAGE="${{ steps.image.outputs.ref }}"
+
+          if [[ -n "${SHELL_ARG}" ]]; then
+            # Override entrypoint with specified shell, pass command via -c
+            OUTPUT=$(docker run --rm \
+              ${{ inputs.docker-args }} \
+              --entrypoint "${SHELL_ARG}" \
+              "${IMAGE}" \
+              -c "${{ inputs.command }}" 2>&1)
+          else
+            # Use image's default entrypoint
+            OUTPUT=$(docker run --rm \
+              ${{ inputs.docker-args }} \
+              "${IMAGE}" \
+              ${{ inputs.command }} 2>&1)
+          fi
+
+          EXIT_CODE=$?
+
+          echo "exit-code=${EXIT_CODE}" >> $GITHUB_OUTPUT
+
+          # Truncate output if too long (GITHUB_OUTPUT has size limits)
+          if [[ ${#OUTPUT} -gt 50000 ]]; then
+            OUTPUT="${OUTPUT:0:50000}
+          ... (output truncated)"
+          fi
+
+          # Use heredoc for multi-line output
+          {
+            echo "output<<VALIDATION_OUTPUT_EOF"
+            echo "${OUTPUT}"
+            echo "VALIDATION_OUTPUT_EOF"
+          } >> $GITHUB_OUTPUT
+
+          # Print output for logs
+          echo "${OUTPUT}"
+
+          if [[ ${EXIT_CODE} -eq 0 ]]; then
+            echo "Validation passed"
+          else
+            echo "Validation failed with exit code ${EXIT_CODE}"
+          fi
+
+      - name: Determine Result
+        id: result
+        run: |
+          if [[ "${{ steps.run.outputs.exit-code }}" == "0" ]]; then
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Container Image Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          STATUS="${{ steps.result.outputs.status }}"
+
+          if [[ "${STATUS}" == "passed" ]]; then
+            echo ":white_check_mark: **Validation Passed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":x: **Validation Failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.image.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Command" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "${{ inputs.command }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.run.outputs.output }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Shell | \`${{ inputs.shell || 'image default' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Exit Code | \`${{ steps.run.outputs.exit-code }}\` |" >> $GITHUB_STEP_SUMMARY
+          if [[ -n "${{ inputs.docker-args }}" ]]; then
+            echo "| Docker Args | \`${{ inputs.docker-args }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on Validation Failure
+        if: steps.result.outputs.status == 'failed'
+        run: |
+          echo "Validation command failed with exit code ${{ steps.run.outputs.exit-code }}"
+          exit 1

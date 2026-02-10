@@ -112,6 +112,9 @@ on:
       version:
         description: 'Generated version'
         value: ${{ jobs.merge.outputs.version || jobs.build.outputs.version }}
+      image-ref:
+        description: 'Fully-qualified image reference pinned by digest (registry/name@sha256:...)'
+        value: ${{ jobs.merge.outputs.image-ref || jobs.build.outputs.image-ref }}
 
 jobs:
   # Validate platforms and determine build strategy
@@ -194,6 +197,7 @@ jobs:
       digest: ${{ steps.single-output.outputs.digest || '' }}
       imageid: ${{ steps.single-output.outputs.imageid || '' }}
       metadata: ${{ steps.single-output.outputs.metadata || '' }}
+      image-ref: ${{ steps.single-output.outputs.image-ref || '' }}
       tags: ${{ inputs.tags || steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       version: ${{ steps.meta.outputs.version }}
@@ -296,6 +300,14 @@ jobs:
           echo "imageid=${{ steps.build-single.outputs.imageid }}" >> $GITHUB_OUTPUT
           echo "metadata=${{ steps.build-single.outputs.metadata }}" >> $GITHUB_OUTPUT
 
+          # Compute fully-qualified digest-pinned image reference
+          DIGEST="${{ steps.build-single.outputs.digest }}"
+          if [[ -n "${DIGEST}" ]]; then
+            echo "image-ref=${{ inputs.registry }}/${{ steps.image-name.outputs.name }}@${DIGEST}" >> $GITHUB_OUTPUT
+          else
+            echo "image-ref=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Generate Summary (single platform)
         if: needs.validate.outputs.strategy == 'single'
         run: |
@@ -329,6 +341,7 @@ jobs:
       digest: ${{ steps.inspect.outputs.digest }}
       imageid: ${{ steps.inspect.outputs.imageid }}
       metadata: ${{ steps.inspect.outputs.metadata }}
+      image-ref: ${{ steps.inspect.outputs.image-ref }}
       tags: ${{ inputs.tags || steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
       version: ${{ steps.meta.outputs.version }}
@@ -407,6 +420,7 @@ jobs:
           DIGEST=$(docker buildx imagetools inspect "${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
           echo "imageid=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "image-ref=${IMAGE}@${DIGEST}" >> $GITHUB_OUTPUT
 
           METADATA=$(docker buildx imagetools inspect "${TAG}" --format '{{json .}}' | jq -c .)
           echo "metadata=${METADATA}" >> $GITHUB_OUTPUT
