@@ -84,6 +84,11 @@ on:
         required: false
         type: string
         default: 'ubuntu-24.04-arm'
+      sha-format:
+        description: 'SHA tag format: short (abc1234), long (full SHA), or none (no SHA tag)'
+        required: false
+        type: string
+        default: 'short'
       runs-on:
         description: 'DEPRECATED: Use amd64-runner instead. Runner label for single-arch builds.'
         required: false
@@ -224,6 +229,25 @@ jobs:
           username: ${{ inputs.registry-username || github.actor }}
           password: ${{ secrets.registry-password || github.token }}
 
+      - name: Compute SHA tag config
+        id: sha-tag
+        run: |
+          case "${{ inputs.sha-format }}" in
+            short)
+              echo "tag=type=sha,prefix=" >> $GITHUB_OUTPUT
+              ;;
+            long)
+              echo "tag=type=sha,format=long,prefix=" >> $GITHUB_OUTPUT
+              ;;
+            none)
+              echo "tag=" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "::error::Invalid sha-format: ${{ inputs.sha-format }}. Must be short, long, or none."
+              exit 1
+              ;;
+          esac
+
       - name: Docker Metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -235,7 +259,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha,prefix=sha-
+            ${{ steps.sha-tag.outputs.tag }}
           labels: |
             ${{ inputs.version && format('org.opencontainers.image.version={0}', inputs.version) || '' }}
 
@@ -367,6 +391,25 @@ jobs:
           username: ${{ inputs.registry-username || github.actor }}
           password: ${{ secrets.registry-password || github.token }}
 
+      - name: Compute SHA tag config
+        id: sha-tag
+        run: |
+          case "${{ inputs.sha-format }}" in
+            short)
+              echo "tag=type=sha,prefix=" >> $GITHUB_OUTPUT
+              ;;
+            long)
+              echo "tag=type=sha,format=long,prefix=" >> $GITHUB_OUTPUT
+              ;;
+            none)
+              echo "tag=" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "::error::Invalid sha-format: ${{ inputs.sha-format }}. Must be short, long, or none."
+              exit 1
+              ;;
+          esac
+
       - name: Docker Metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -378,7 +421,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha,prefix=sha-
+            ${{ steps.sha-tag.outputs.tag }}
           labels: |
             ${{ inputs.version && format('org.opencontainers.image.version={0}', inputs.version) || '' }}
 
