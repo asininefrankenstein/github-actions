@@ -194,9 +194,9 @@ jobs:
       contents: read
       packages: write
     outputs:
-      digest: ${{ steps.single-output.outputs.digest || '' }}
-      imageid: ${{ steps.single-output.outputs.imageid || '' }}
-      metadata: ${{ steps.single-output.outputs.metadata || '' }}
+      digest: ${{ steps.build-single.outputs.digest || '' }}
+      imageid: ${{ steps.build-single.outputs.imageid || '' }}
+      metadata: ${{ steps.build-single.outputs.metadata || '' }}
       image-ref: ${{ steps.single-output.outputs.image-ref || '' }}
       tags: ${{ inputs.tags || steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
@@ -296,17 +296,6 @@ jobs:
         id: single-output
         if: needs.validate.outputs.strategy == 'single'
         run: |
-          echo "digest=${{ steps.build-single.outputs.digest }}" >> $GITHUB_OUTPUT
-          echo "imageid=${{ steps.build-single.outputs.imageid }}" >> $GITHUB_OUTPUT
-
-          # Use heredoc for metadata to safely handle multi-line JSON with special characters
-          {
-            echo "metadata<<METADATA_EOF"
-            echo '${{ steps.build-single.outputs.metadata }}'
-            echo "METADATA_EOF"
-          } >> $GITHUB_OUTPUT
-
-          # Compute fully-qualified digest-pinned image reference
           DIGEST="${{ steps.build-single.outputs.digest }}"
           if [[ -n "${DIGEST}" ]]; then
             echo "image-ref=${{ inputs.registry }}/${{ steps.image-name.outputs.name }}@${DIGEST}" >> $GITHUB_OUTPUT
