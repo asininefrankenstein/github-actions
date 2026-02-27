@@ -413,7 +413,7 @@ jobs:
       # Upload Lint Artifacts
       - name: Upload Lint Artifacts
         if: always() && inputs.upload-artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}-${{ matrix.linter }}
           path: ${{ inputs.working-directory == '.' && format('{0}/.lint-results/', github.workspace) || format('{0}/{1}/.lint-results/', github.workspace, inputs.working-directory) }}

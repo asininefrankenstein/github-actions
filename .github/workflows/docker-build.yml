@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload digest artifact
         if: needs.validate.outputs.strategy == 'multi' && inputs.push == true
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           path: /tmp/digests/*
@@ -375,7 +375,7 @@ jobs:
           fi
 
       - name: Download digests
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digest-*
