@@ -13,6 +13,9 @@ Detailed documentation for all reusable workflows in this repository.
 - [Webhook Workflow](#webhook-workflow)
 - [Image Scan Workflow](#image-scan-workflow)
 - [CI/CD Unified Workflow](#ci-cd-unified-workflow)
+- [Code Scan Workflow](#code-scan-workflow)
+- [Release Gate Workflow](#release-gate-workflow)
+- [Pipeline Summary Workflow](#pipeline-summary-workflow)
 
 ---
 
@@ -672,3 +675,135 @@ permissions:
 ```
 
 > **GHCR Authentication:** For private images on ghcr.io, the workflow automatically uses `GITHUB_TOKEN` for authentication. No additional configuration is required when scanning images in the same organization.
+
+---
+
+## Code Scan Workflow
+
+Trivy filesystem scan for vulnerabilities, secrets, and misconfigurations at the source level. Stage 1 of the lego block pipeline — runs before a container image is built.
+
+**Usage:**
+
+```yaml
+name: CI
+on: [push, pull_request]
+
+jobs:
+  code-scan:
+    uses: jacaudi/github-actions/.github/workflows/code-scan.yml@main
+    with:
+      scanners: 'vuln,secret,misconfig'
+      severity: 'HIGH,CRITICAL'
+      upload-sarif: true
+```
+
+**Report Only (Don't Fail):**
+
+```yaml
+jobs:
+  code-scan:
+    uses: jacaudi/github-actions/.github/workflows/code-scan.yml@main
+    with:
+      exit-code: 0  # Report findings without failing the job
+      severity: 'CRITICAL,HIGH,MEDIUM'
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `scanners` | string | `'vuln,secret,misconfig'` | Trivy scanners to enable (comma-separated) |
+| `severity` | string | `'HIGH,CRITICAL'` | Severity levels to include (comma-separated) |
+| `ignore-unfixed` | boolean | `false` | Ignore vulnerabilities without a fix |
+| `exit-code` | number | `1` | Exit code when issues are found (0 = report only, 1 = fail) |
+| `working-directory` | string | `'.'` | Directory to scan (relative to repo root) |
+| `trivy-version` | string | `'0.58.1'` | Pinned Trivy image version |
+| `upload-sarif` | boolean | `true` | Upload SARIF results to GitHub Security tab |
+| `runs-on` | string | `'ubuntu-24.04'` | Runner label |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `status` | Scan result: `passed` or `failed` |
+| `critical-count` | Number of CRITICAL severity findings |
+| `high-count` | Number of HIGH severity findings |
+
+**Required Permissions:**
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # For SARIF upload
+```
+
+> **Implementation note:** Trivy runs as `docker run aquasec/trivy` on the host runner (not as a job container). This keeps the runner a standard GitHub-hosted Ubuntu environment so JS-based actions such as `upload-artifact` and `upload-sarif` continue to work without modification. Emits a `pipeline-meta-code-scan` artifact containing the native Trivy JSON output (30-day retention).
+
+---
+
+## Release Gate Workflow
+
+Manual approval gate that pauses the pipeline and waits for a reviewer to approve via a GitHub Environment. Stage 5 of the lego block pipeline — placed between scanning and release.
+
+**Usage:**
+
+```yaml
+jobs:
+  gate:
+    uses: jacaudi/github-actions/.github/workflows/release-gate.yml@main
+    with:
+      environment: 'release-approval'
+```
+
+**Setup (once per repository):**
+
+1. Go to **Settings → Environments** in your repository.
+2. Click **New environment** and name it `release-approval` (or whatever you pass as `environment`).
+3. Under **Environment protection rules**, add **Required reviewers**.
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `environment` | string | `'release-approval'` | GitHub environment name configured with required reviewers |
+| `runs-on` | string | `'ubuntu-24.04'` | Runner label |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `status` | Gate result: `approved` or `failed` |
+
+> **How it works:** The job targets the named GitHub Environment. GitHub blocks the job from starting until a required reviewer approves it in the Actions UI. If the reviewer rejects the deployment, the job — and any downstream jobs — fail. Emits a `pipeline-meta-release-gate` artifact (30-day retention).
+
+---
+
+## Pipeline Summary Workflow
+
+Collector block that downloads all `pipeline-meta-*` artifacts and merges them into a single `pipeline-metadata` artifact. Always add this as the last job with `if: always()` so it runs even when upstream jobs fail.
+
+**Usage:**
+
+```yaml
+jobs:
+  # ... all other blocks ...
+
+  pipeline-summary:
+    needs: [code-scan, build, test, scan, gate, release]
+    if: always()
+    uses: jacaudi/github-actions/.github/workflows/pipeline-summary.yml@main
+```
+
+**Inputs:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `runs-on` | string | `'ubuntu-24.04'` | Runner label |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `status` | Artifact upload status: `passed` |
+
+> **Artifact merging:** The workflow downloads all artifacts matching `pipeline-meta-*`. Blocks that did not run in the current pipeline are recorded as `{"status": "did-not-run"}` in the merged output. The final `pipeline-metadata.json` (uploaded as the `pipeline-metadata` artifact) has 90-day retention. See `docs/schemas/meta-pipeline.json` for the full schema.

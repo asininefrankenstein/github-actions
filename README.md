@@ -2,6 +2,8 @@
 
 A centralized collection of reusable GitHub Actions workflows for CI/CD standardization across projects.
 
+See [Architecture Guide](docs/architecture.md) for the lego block design.
+
 ## Quick Start
 
 Reference any workflow from your repository:
@@ -38,6 +40,9 @@ See [docs/examples.md](docs/examples.md) for detailed pipeline documentation.
 | [webhook.yml](docs/workflows.md#webhook-workflow) | Post-release webhooks and workflow triggers |
 | [image-scan.yml](docs/workflows.md#image-scan-workflow) | Container security scanning with Trivy |
 | [ci-cd-unified.yml](docs/workflows.md#ci-cd-unified-workflow) | Complete CI/CD pipeline (lint, test, release) |
+| [code-scan.yml](docs/workflows.md#code-scan-workflow) | Trivy filesystem scan (Stage 1 — Code Analysis) |
+| [release-gate.yml](docs/workflows.md#release-gate-workflow) | Manual approval gate via GitHub Environment |
+| [pipeline-summary.yml](docs/workflows.md#pipeline-summary-workflow) | Collector: merges all block metadata into pipeline-metadata artifact |
 
 See [docs/workflows.md](docs/workflows.md) for detailed workflow documentation.
 
