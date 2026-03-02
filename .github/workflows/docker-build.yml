@@ -347,6 +347,50 @@ jobs:
             echo "**Digest:** \`${{ steps.build-single.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Write block metadata (single platform)
+        if: always() && needs.validate.outputs.strategy == 'single'
+        run: |
+          STATUS="passed"
+          if [[ "${{ job.status }}" != "success" ]]; then
+            STATUS="failed"
+          fi
+          IMAGE_NAME="${{ inputs.image-name || github.repository }}"
+          TAGS_JSON=$(echo "${{ inputs.tags || steps.meta.outputs.tags }}" | jq -R -s 'split("\n") | map(select(. != ""))')
+          jq -n \
+            --arg   block      "build-artifact" \
+            --arg   status     "${STATUS}" \
+            --arg   timestamp  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg   commit     "${{ github.sha }}" \
+            --arg   registry   "${{ inputs.registry }}" \
+            --arg   image      "${IMAGE_NAME}" \
+            --arg   image_ref  "${{ steps.single-output.outputs.image-ref }}" \
+            --arg   digest     "${{ steps.build-single.outputs.digest }}" \
+            --arg   version    "${{ steps.meta.outputs.version }}" \
+            --arg   build_type "ephemeral" \
+            --argjson tags     "${TAGS_JSON}" \
+            '{
+              block:      $block,
+              status:     $status,
+              timestamp:  $timestamp,
+              commit:     $commit,
+              registry:   $registry,
+              image:      $image,
+              image_ref:  $image_ref,
+              digest:     $digest,
+              tags:       $tags,
+              platforms:  [${{ toJSON(matrix.platform) }}],
+              version:    $version,
+              build_type: $build_type
+            }' > meta.json
+
+      - name: Upload block metadata (single platform)
+        if: always() && needs.validate.outputs.strategy == 'single'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-meta-build-artifact
+          path: meta.json
+          retention-days: 30
+
   # Merge platform images into multi-arch manifest (only for multi-platform builds)
   merge:
     name: Create Multi-arch Manifest
@@ -486,3 +530,47 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Write block metadata
+        if: always()
+        run: |
+          STATUS="passed"
+          if [[ "${{ job.status }}" != "success" ]]; then
+            STATUS="failed"
+          fi
+          IMAGE_NAME="${{ inputs.image-name || github.repository }}"
+          TAGS_JSON=$(echo "${{ steps.meta.outputs.tags }}" | jq -R -s 'split("\n") | map(select(. != ""))')
+          jq -n \
+            --arg   block      "build-artifact" \
+            --arg   status     "${STATUS}" \
+            --arg   timestamp  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg   commit     "${{ github.sha }}" \
+            --arg   registry   "${{ inputs.registry }}" \
+            --arg   image      "${IMAGE_NAME}" \
+            --arg   image_ref  "${{ steps.inspect.outputs.image-ref }}" \
+            --arg   digest     "${{ steps.inspect.outputs.digest }}" \
+            --arg   version    "${{ steps.meta.outputs.version }}" \
+            --arg   build_type "ephemeral" \
+            --argjson tags     "${TAGS_JSON}" \
+            '{
+              block:      $block,
+              status:     $status,
+              timestamp:  $timestamp,
+              commit:     $commit,
+              registry:   $registry,
+              image:      $image,
+              image_ref:  $image_ref,
+              digest:     $digest,
+              tags:       $tags,
+              platforms:  ["linux/amd64", "linux/arm64"],
+              version:    $version,
+              build_type: $build_type
+            }' > meta.json
+
+      - name: Upload block metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-meta-build-artifact
+          path: meta.json
+          retention-days: 30
