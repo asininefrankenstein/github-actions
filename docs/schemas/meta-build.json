@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-build.json",
   "title": "build-artifact block metadata",
-  "description": "Artifact emitted by the build-artifact (docker-build) lego block after a successful image build.",
+  "description": "Artifact emitted by the build-artifact (docker-build) building block after a successful image build.",
   "type": "object",
   "required": ["block", "status", "timestamp", "commit"],
   "properties": {

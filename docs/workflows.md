@@ -680,7 +680,7 @@ permissions:
 
 ## Code Scan Workflow
 
-Trivy filesystem scan for vulnerabilities, secrets, and misconfigurations at the source level. Stage 1 of the lego block pipeline — runs before a container image is built.
+Trivy filesystem scan for vulnerabilities, secrets, and misconfigurations at the source level. Stage 1 of the building block pipeline — runs before a container image is built.
 
 **Usage:**
 
@@ -743,7 +743,7 @@ permissions:
 
 ## Release Gate Workflow
 
-Manual approval gate that pauses the pipeline and waits for a reviewer to approve via a GitHub Environment. Stage 5 of the lego block pipeline — placed between scanning and release.
+Manual approval gate that pauses the pipeline and waits for a reviewer to approve via a GitHub Environment. Stage 5 of the building block pipeline — placed between scanning and release.
 
 **Usage:**
 

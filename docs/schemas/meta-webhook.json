@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-webhook.json",
   "title": "webhook block metadata",
-  "description": "Artifact emitted by the webhook lego block after dispatching an HTTP webhook or triggering a downstream GitHub workflow.",
+  "description": "Artifact emitted by the webhook building block after dispatching an HTTP webhook or triggering a downstream GitHub workflow.",
   "type": "object",
   "required": ["block", "status", "timestamp", "mode"],
   "properties": {

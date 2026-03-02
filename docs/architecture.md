@@ -1,12 +1,12 @@
 # Architecture Guide
 
-A concise reference for the lego block CI/CD design used in this repository.
+A concise reference for the building block CI/CD design used in this repository.
 
 ---
 
 ## Philosophy
 
-Each workflow in this repository is a **lego block**: one responsibility, one artifact. Blocks compose into E2E pipelines by declaring `needs:` dependencies between jobs. Because every block is a standalone reusable workflow, individual blocks can be tested, versioned, and reused across pipelines without modification.
+Each workflow in this repository is a **building block**: one responsibility, one artifact. Blocks compose into E2E pipelines by declaring `needs:` dependencies between jobs. Because every block is a standalone reusable workflow, individual blocks can be tested, versioned, and reused across pipelines without modification.
 
 The two rules that make composition work:
 

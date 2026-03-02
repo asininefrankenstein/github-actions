@@ -2,7 +2,7 @@
 
 A centralized collection of reusable GitHub Actions workflows for CI/CD standardization across projects.
 
-See [Architecture Guide](docs/architecture.md) for the lego block design.
+See [Architecture Guide](docs/architecture.md) for the building block design.
 
 ## Quick Start
 

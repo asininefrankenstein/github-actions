@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-release-gate.json",
   "title": "release-gate block metadata",
-  "description": "Artifact emitted by the release-gate lego block after a manual approval is granted via a GitHub environment with required reviewers.",
+  "description": "Artifact emitted by the release-gate building block after a manual approval is granted via a GitHub environment with required reviewers.",
   "type": "object",
   "required": ["block", "status", "timestamp", "environment", "run_id"],
   "properties": {

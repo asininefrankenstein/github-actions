@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-pipeline.json",
   "title": "pipeline-metadata collector output",
-  "description": "The merged pipeline metadata artifact produced by the pipeline-summary lego block. Contains the envelope fields plus the meta.json output from every block that ran, keyed by block name. Blocks that did not run are recorded as {\"status\": \"did-not-run\"}.",
+  "description": "The merged pipeline metadata artifact produced by the pipeline-summary building block. Contains the envelope fields plus the meta.json output from every block that ran, keyed by block name. Blocks that did not run are recorded as {\"status\": \"did-not-run\"}.",
   "type": "object",
   "required": ["pipeline_id", "repository", "commit", "ref", "timestamp", "blocks"],
   "properties": {

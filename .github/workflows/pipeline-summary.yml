@@ -1,5 +1,5 @@
 name: Pipeline Summary
-# Lego block: Collector — always runs last in any E2E pipeline
+# Building block: Collector — always runs last in any E2E pipeline
 # Downloads all pipeline-meta-* artifacts and merges them into
 # a single pipeline-metadata.json artifact.
 #

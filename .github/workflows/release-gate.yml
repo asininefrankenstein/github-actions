@@ -1,5 +1,5 @@
 name: Release Gate
-# Lego block: Stage 5 — Manual Approval Gate
+# Building block: Stage 5 — Manual Approval Gate
 # Pauses the pipeline and waits for a reviewer to approve the deployment
 # in the GitHub environment named by the `environment` input.
 #

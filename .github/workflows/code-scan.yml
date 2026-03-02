@@ -1,5 +1,5 @@
 name: Code Scan
-# Lego block: Stage 1 — Code Analysis
+# Building block: Stage 1 — Code Analysis
 # Runs Trivy filesystem scan for vulnerabilities, secrets, and misconfigurations.
 # Emits: pipeline-meta-code-scan artifact containing the native Trivy JSON output.
 
