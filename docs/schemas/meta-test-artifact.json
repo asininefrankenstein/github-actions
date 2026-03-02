@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-test-artifact.json",
+  "title": "test-artifact block metadata",
+  "description": "Artifact emitted by the test-artifact (image-validate) lego block after running validation commands inside the built container image.",
+  "type": "object",
+  "required": ["block", "status", "timestamp", "image_ref", "exit_code"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "const": "test-artifact",
+      "description": "Block identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"],
+      "description": "Validation outcome."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the block completed."
+    },
+    "image_ref": {
+      "type": "string",
+      "description": "Fully-qualified image reference that was tested (registry/name@sha256:...)."
+    },
+    "command": {
+      "type": "string",
+      "description": "The validation command(s) that were executed inside the container."
+    },
+    "shell": {
+      "type": "string",
+      "description": "Shell used as entrypoint (e.g. /bin/sh). Empty string means image default entrypoint."
+    },
+    "exit_code": {
+      "type": "integer",
+      "description": "Exit code returned by the validation command. 0 = passed."
+    },
+    "output": {
+      "type": "string",
+      "description": "Captured stdout and stderr from the validation command (truncated at 50000 chars)."
+    }
+  }
+}

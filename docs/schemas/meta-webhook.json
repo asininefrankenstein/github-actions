@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-webhook.json",
+  "title": "webhook block metadata",
+  "description": "Artifact emitted by the webhook lego block after dispatching an HTTP webhook or triggering a downstream GitHub workflow.",
+  "type": "object",
+  "required": ["block", "status", "timestamp", "mode"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "const": "webhook",
+      "description": "Block identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed", "skipped"],
+      "description": "Dispatch outcome."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the block completed."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["http", "workflow_dispatch"],
+      "description": "Whether this block dispatched an HTTP webhook or triggered a GitHub workflow_dispatch event."
+    },
+    "response_code": {
+      "type": "integer",
+      "description": "HTTP response code. Present only when mode is 'http'."
+    },
+    "target_repo": {
+      "type": "string",
+      "description": "Target repository (owner/repo). Present only when mode is 'workflow_dispatch'."
+    },
+    "target_workflow": {
+      "type": "string",
+      "description": "Target workflow filename or ID. Present only when mode is 'workflow_dispatch'."
+    },
+    "release_tag": {
+      "type": "string",
+      "description": "Release tag passed as context to the webhook or triggered workflow."
+    }
+  }
+}

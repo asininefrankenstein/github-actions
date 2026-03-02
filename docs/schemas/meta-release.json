@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-release.json",
+  "title": "semantic-release block metadata",
+  "description": "Artifact emitted by the semantic-release lego block after go-semantic-release determines and creates (or skips) a new version.",
+  "type": "object",
+  "required": ["block", "status", "timestamp", "new_release_published"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "const": "semantic-release",
+      "description": "Block identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"],
+      "description": "Block execution outcome."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the block completed."
+    },
+    "new_release_published": {
+      "type": "boolean",
+      "description": "Whether a new release was created. false means no releasable commits were found."
+    },
+    "version": {
+      "type": "string",
+      "description": "The new semantic version string (e.g. v1.2.3). Present only when new_release_published is true."
+    },
+    "major_version": {
+      "type": "string",
+      "description": "Major version component. Present only when new_release_published is true."
+    },
+    "minor_version": {
+      "type": "string",
+      "description": "Minor version component. Present only when new_release_published is true."
+    },
+    "patch_version": {
+      "type": "string",
+      "description": "Patch version component. Present only when new_release_published is true."
+    },
+    "git_tag": {
+      "type": "string",
+      "description": "Git tag created (e.g. v1.2.3). Present only when new_release_published is true."
+    },
+    "git_head": {
+      "type": "string",
+      "description": "Git commit SHA of the release. Present only when new_release_published is true."
+    },
+    "release_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the created GitHub release. Present only when new_release_published is true."
+    }
+  }
+}

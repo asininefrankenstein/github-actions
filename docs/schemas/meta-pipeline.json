@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-pipeline.json",
+  "title": "pipeline-metadata collector output",
+  "description": "The merged pipeline metadata artifact produced by the pipeline-summary lego block. Contains the envelope fields plus the meta.json output from every block that ran, keyed by block name. Blocks that did not run are recorded as {\"status\": \"did-not-run\"}.",
+  "type": "object",
+  "required": ["pipeline_id", "repository", "commit", "ref", "timestamp", "blocks"],
+  "properties": {
+    "pipeline_id": {
+      "type": "string",
+      "description": "GitHub Actions workflow run ID (GITHUB_RUN_ID)."
+    },
+    "run_number": {
+      "type": "string",
+      "description": "GitHub Actions workflow run number (GITHUB_RUN_NUMBER)."
+    },
+    "repository": {
+      "type": "string",
+      "description": "Repository in owner/repo format (GITHUB_REPOSITORY)."
+    },
+    "commit": {
+      "type": "string",
+      "description": "Full git SHA that triggered the pipeline (GITHUB_SHA)."
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git ref that triggered the pipeline (GITHUB_REF, e.g. refs/heads/main)."
+    },
+    "workflow": {
+      "type": "string",
+      "description": "Name of the caller workflow (GITHUB_WORKFLOW)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the pipeline-summary block ran."
+    },
+    "blocks": {
+      "type": "object",
+      "description": "Block metadata keyed by block name. Each value is either the block's meta.json output or {\"status\": \"did-not-run\"} if the block was not part of this pipeline run.",
+      "properties": {
+        "code-scan": {
+          "oneOf": [
+            { "$ref": "meta-code-scan.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "build-artifact": {
+          "oneOf": [
+            { "$ref": "meta-build.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "test-artifact": {
+          "oneOf": [
+            { "$ref": "meta-test-artifact.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "scan-artifact": {
+          "oneOf": [
+            { "$ref": "meta-scan-artifact.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "release-gate": {
+          "oneOf": [
+            { "$ref": "meta-release-gate.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "semantic-release": {
+          "oneOf": [
+            { "$ref": "meta-release.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "helm-publish": {
+          "oneOf": [
+            { "$ref": "meta-helm.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        },
+        "webhook": {
+          "oneOf": [
+            { "$ref": "meta-webhook.json" },
+            { "$ref": "#/$defs/DidNotRun" }
+          ]
+        }
+      },
+      "additionalProperties": {
+        "description": "Phase-2 blocks (e.g. sign-artifact) or custom blocks added by callers."
+      }
+    }
+  },
+  "$defs": {
+    "DidNotRun": {
+      "type": "object",
+      "description": "Sentinel value for blocks that were not part of this pipeline run.",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "did-not-run"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-build.json",
+  "title": "build-artifact block metadata",
+  "description": "Artifact emitted by the build-artifact (docker-build) lego block after a successful image build.",
+  "type": "object",
+  "required": ["block", "status", "timestamp", "commit"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "const": "build-artifact",
+      "description": "Block identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed"],
+      "description": "Build outcome."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the block completed."
+    },
+    "commit": {
+      "type": "string",
+      "description": "Full git SHA of the commit that was built."
+    },
+    "registry": {
+      "type": "string",
+      "description": "Container registry (e.g. ghcr.io)."
+    },
+    "image": {
+      "type": "string",
+      "description": "Image name without registry prefix (e.g. owner/repo)."
+    },
+    "image_ref": {
+      "type": "string",
+      "description": "Fully-qualified image reference pinned by digest (registry/name@sha256:...)."
+    },
+    "digest": {
+      "type": "string",
+      "description": "Image manifest digest (sha256:...)."
+    },
+    "tags": {
+      "type": "array",
+      "description": "All tags applied to the built image.",
+      "items": { "type": "string" }
+    },
+    "platforms": {
+      "type": "array",
+      "description": "Target platforms built (e.g. linux/amd64, linux/arm64).",
+      "items": { "type": "string" }
+    },
+    "version": {
+      "type": "string",
+      "description": "OCI version label applied to the image."
+    },
+    "build_type": {
+      "type": "string",
+      "enum": ["ephemeral", "release"],
+      "description": "ephemeral = SHA-tagged branch/PR build; release = semver-tagged release build."
+    }
+  }
+}

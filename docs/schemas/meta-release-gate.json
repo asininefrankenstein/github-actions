@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/jacaudi/github-actions/docs/schemas/meta-release-gate.json",
+  "title": "release-gate block metadata",
+  "description": "Artifact emitted by the release-gate lego block after a manual approval is granted via a GitHub environment with required reviewers.",
+  "type": "object",
+  "required": ["block", "status", "timestamp", "environment", "run_id"],
+  "properties": {
+    "block": {
+      "type": "string",
+      "const": "release-gate",
+      "description": "Block identifier."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["approved", "failed"],
+      "description": "Gate outcome. 'approved' means a reviewer approved the deployment to the environment."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the approval was granted and the job began executing."
+    },
+    "environment": {
+      "type": "string",
+      "description": "GitHub environment name that was used for the approval gate (e.g. release-approval)."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "GitHub Actions workflow run ID."
+    },
+    "actor": {
+      "type": "string",
+      "description": "GitHub username of the actor who triggered the workflow run (not necessarily the approver)."
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git ref that triggered the pipeline (e.g. refs/heads/main)."
+    },
+    "commit": {
+      "type": "string",
+      "description": "Full git SHA being released."
+    }
+  }
+}
