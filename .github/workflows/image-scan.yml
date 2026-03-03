@@ -199,7 +199,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -e TRIVY_USERNAME="${{ secrets.registry-username || github.actor }}" \
             -e TRIVY_PASSWORD="${{ secrets.registry-password || github.token }}" \
-            aquasec/trivy:0.69.2 \
+            aquasec/trivy:0.69.3 \
             image \
             --scanners "${{ inputs.scanners }}" \
             --severity "${{ inputs.severity }}" \
@@ -242,7 +242,7 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v $(pwd):/output \
-            aquasec/trivy:0.69.2 \
+            aquasec/trivy:0.69.3 \
             image \
             --severity "${{ inputs.severity }}" \
             --format table \
@@ -263,7 +263,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -e TRIVY_USERNAME="${{ secrets.registry-username || github.actor }}" \
             -e TRIVY_PASSWORD="${{ secrets.registry-password || github.token }}" \
-            aquasec/trivy:0.69.2 \
+            aquasec/trivy:0.69.3 \
             image \
             --format sarif \
             --output /out/trivy-results.sarif \

@@ -36,7 +36,7 @@ on:
         required: false
         type: string
         # renovate: datasource=docker depName=aquasec/trivy
-        default: '0.58.1'
+        default: '0.69.3'
       upload-sarif:
         description: 'Upload SARIF results to GitHub Security tab'
         required: false
