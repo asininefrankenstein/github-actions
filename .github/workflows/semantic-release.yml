@@ -41,6 +41,11 @@ on:
         required: false
         type: boolean
         default: false
+      create-release:
+        description: 'Create a GitHub Release (set false for tag-only mode)'
+        required: false
+        type: boolean
+        default: true
       hooks:
         description: 'Hooks to run (e.g., goreleaser, npm-binary-releaser, exec)'
         required: false
@@ -235,6 +240,12 @@ jobs:
           hooks: ${{ inputs.hooks }}
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Delete GitHub Release (tag-only mode)
+        if: ${{ !inputs.create-release && steps.semrel.outputs.version != '' }}
+        run: gh release delete "v${{ steps.semrel.outputs.version }}" --yes
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
 
       - name: Process release results
         id: release
