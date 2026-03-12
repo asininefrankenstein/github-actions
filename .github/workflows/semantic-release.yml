@@ -320,7 +320,7 @@ jobs:
           # Note: Previous version tracking removed - using action outputs directly
 
           echo "| Dry Run | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tag-Only Mode | ${{ inputs.create-release == false }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag-Only Mode | ${{ !inputs.create-release }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Token Type | ${{ steps.token.outputs.token-type }} |" >> $GITHUB_STEP_SUMMARY
 
           # Token warning
