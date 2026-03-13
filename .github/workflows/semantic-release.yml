@@ -242,7 +242,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
 
       - name: Delete GitHub Release (tag-only mode)
-        if: ${{ !inputs.create-release && steps.semrel.outputs.version != '' }}
+        if: ${{ !inputs.create-release && !inputs.dry-run && steps.semrel.outputs.version != '' }}
         run: gh release delete "v${{ steps.semrel.outputs.version }}" --yes
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
