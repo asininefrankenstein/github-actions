@@ -173,7 +173,7 @@ jobs:
 
       - name: Log in to Registry
         if: steps.image.outputs.has-credentials == 'true' || steps.image.outputs.registry == 'ghcr.io'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ steps.image.outputs.registry }}
           username: ${{ secrets.registry-username || github.actor }}
