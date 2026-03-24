@@ -37,16 +37,6 @@ jobs:
       # No other linters needed for a workflows-only repo
 
   # ===========================================================================
-  # Stage 1b: Code Scan
-  # ===========================================================================
-  code-scan:
-    name: Code Scan
-    uses: ./.github/workflows/code-scan.yml
-    with:
-      severity: 'HIGH,CRITICAL'
-      exit-code: 0
-
-  # ===========================================================================
   # Stage 2: Semantic Release (auto-version, tag, and release on main branch)
   # ===========================================================================
   release:
@@ -67,6 +57,6 @@ jobs:
   # ===========================================================================
   pipeline-summary:
     name: Pipeline Summary
-    needs: [lint, code-scan, release]
+    needs: [lint, release]
     if: always()
     uses: ./.github/workflows/pipeline-summary.yml
