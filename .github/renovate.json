@@ -1,33 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>jacaudi/renovate-config:base"],
-  "packageRules": [
-    {
-      "description": "Trivy container image — used in code-scan.yml and image-scan.yml",
-      "matchManagers": ["regex"],
-      "matchPackageNames": ["aquasec/trivy"],
-      "groupName": "trivy",
-      "automerge": false
-    }
-  ],
-  "regexManagers": [
-    {
-      "description": "Track aquasec/trivy version in workflow files",
-      "fileMatch": ["^\\.github/workflows/.+\\.yml$"],
-      "matchStrings": [
-        "aquasec/trivy:(?<currentValue>[\\d.]+)"
-      ],
-      "depNameTemplate": "aquasec/trivy",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "semver"
-    },
-    {
-      "description": "Track aquasec/trivy version in workflow input defaults (annotation pattern)",
-      "fileMatch": ["^\\.github/workflows/.+\\.yml$"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\n]+)\\n\\s+default: '(?<currentValue>[\\d.]+)'"
-      ],
-      "versioningTemplate": "semver"
-    }
-  ]
+  "extends": ["github>jacaudi/renovate-config:base"]
 }

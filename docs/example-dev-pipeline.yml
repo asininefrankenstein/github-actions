@@ -1,6 +1,5 @@
 # Dev / feature branch pipeline
 # Runs on every push to non-main branches.
-# Stage 1 only: code analysis.
 name: CI (Dev)
 
 on:
@@ -8,13 +7,6 @@ on:
     branches-ignore: [main]
 
 jobs:
-  code-scan:
-    uses: jacaudi/github-actions/.github/workflows/code-scan.yml@main
-    with:
-      severity: 'HIGH,CRITICAL'
-      exit-code: 1
-
   pipeline-summary:
-    needs: [code-scan]
     if: always()
     uses: jacaudi/github-actions/.github/workflows/pipeline-summary.yml@main

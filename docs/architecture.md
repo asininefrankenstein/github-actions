@@ -19,11 +19,9 @@ The two rules that make composition work:
 
 | Block | Workflow | Artifact | Stage |
 |-------|----------|----------|-------|
-| code-scan | code-scan.yml | pipeline-meta-code-scan | 1: Code Analysis |
-| build-artifact | docker-build.yml | pipeline-meta-build-artifact | 2: Build |
-| test-artifact | image-validate.yml | pipeline-meta-test-artifact | 3: Test |
-| scan-artifact | image-scan.yml | pipeline-meta-scan-artifact | 4: Scan |
-| release-gate | release-gate.yml | pipeline-meta-release-gate | 5: Manual Gate |
+| build-artifact | docker-build.yml | pipeline-meta-build-artifact | 1: Build |
+| test-artifact | image-validate.yml | pipeline-meta-test-artifact | 2: Test |
+| release-gate | release-gate.yml | pipeline-meta-release-gate | 3: Manual Gate |
 | semantic-release | semantic-release.yml | pipeline-meta-semantic-release | 6: Release |
 | helm-publish | helm-publish.yml | pipeline-meta-helm-publish | Optional |
 | webhook | webhook.yml | pipeline-meta-webhook | Optional |
@@ -43,10 +41,8 @@ JSON Schema Draft-07 files in `docs/schemas/` document the exact shape of each b
 
 | Schema file | Describes |
 |-------------|-----------|
-| `docs/schemas/meta-code-scan.json` | `pipeline-meta-code-scan` artifact |
 | `docs/schemas/meta-build.json` | `pipeline-meta-build-artifact` artifact |
 | `docs/schemas/meta-test-artifact.json` | `pipeline-meta-test-artifact` artifact |
-| `docs/schemas/meta-scan-artifact.json` | `pipeline-meta-scan-artifact` artifact |
 | `docs/schemas/meta-release-gate.json` | `pipeline-meta-release-gate` artifact |
 | `docs/schemas/meta-release.json` | `pipeline-meta-semantic-release` artifact |
 | `docs/schemas/meta-helm.json` | `pipeline-meta-helm-publish` artifact |
@@ -67,39 +63,21 @@ This ensures the merged document always has an entry for every block, making dow
 
 ---
 
-## Trivy Version Policy
-
-Trivy runs as a Docker container invoked from a shell step:
-
-```bash
-docker run --rm \
-  -v "$GITHUB_WORKSPACE:/work" \
-  -w /work \
-  aquasec/trivy:0.58.1 \
-  fs . ...
-```
-
-The runner host is `ubuntu-24.04`. Running Trivy as `docker run` rather than as a job container (`container:`) keeps the runner environment a standard GitHub-hosted Ubuntu host. This matters because JS-based actions — including `actions/upload-artifact` and `github/codeql-action/upload-sarif` — require a Node.js runtime on the host, which is absent when the job itself runs inside a container image.
-
-Trivy is pinned to a specific version tag (`trivy-version` input, default `0.58.1`) so scan results are reproducible. To upgrade, pass a different version string to the `code-scan` or `image-scan` block.
-
----
-
 ## Three Prescribed E2E Pipelines
 
 Three reference pipelines covering the common development workflow are provided in `docs/`:
 
 ### `docs/example-dev-pipeline.yml` — Feature branch / dev push
 
-Runs on every push to a feature branch. Executes the fast feedback loop: code scan and lint only. No build, no release.
+Runs on every push to a feature branch. Executes the fast feedback loop: lint only. No build, no release.
 
 ### `docs/example-pr-pipeline.yml` — Pull request
 
-Runs on `pull_request` events. Executes code scan, build, test, and image scan. No release gate or semantic release — produces a validated build artifact for review.
+Runs on `pull_request` events. Executes build and test. No release gate or semantic release — produces a validated build artifact for review.
 
 ### `docs/example-main-pipeline.yml` — Main branch / production
 
-Runs on push to `main`. Executes the full pipeline: code scan → build → test → image scan → release gate (manual approval) → semantic release → helm publish → webhook → pipeline summary.
+Runs on push to `main`. Executes the full pipeline: build → test → release gate (manual approval) → semantic release → helm publish → webhook → pipeline summary.
 
 All three pipelines end with `pipeline-summary` using `if: always()` to capture metadata regardless of intermediate failures.
 

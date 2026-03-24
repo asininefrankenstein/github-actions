@@ -39,12 +39,6 @@
       "type": "object",
       "description": "Block metadata keyed by block name. Each value is either the block's meta.json output or {\"status\": \"did-not-run\"} if the block was not part of this pipeline run.",
       "properties": {
-        "code-scan": {
-          "oneOf": [
-            { "$ref": "meta-code-scan.json" },
-            { "$ref": "#/$defs/DidNotRun" }
-          ]
-        },
         "build-artifact": {
           "oneOf": [
             { "$ref": "meta-build.json" },
@@ -54,12 +48,6 @@
         "test-artifact": {
           "oneOf": [
             { "$ref": "meta-test-artifact.json" },
-            { "$ref": "#/$defs/DidNotRun" }
-          ]
-        },
-        "scan-artifact": {
-          "oneOf": [
-            { "$ref": "meta-scan-artifact.json" },
             { "$ref": "#/$defs/DidNotRun" }
           ]
         },

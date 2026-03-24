@@ -38,16 +38,8 @@ jobs:
         ghcr.io/${{ github.repository }}:${{ needs.release.outputs.new-release-version }}
         ghcr.io/${{ github.repository }}:latest
 
-  scan:
-    needs: [release, docker]
-    if: needs.release.outputs.new-release-published == 'true'
-    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
-    with:
-      image-ref: ghcr.io/${{ github.repository }}:${{ needs.release.outputs.new-release-version }}
-      image-digest: ${{ needs.docker.outputs.digest }}
-
   helm:
-    needs: [release, scan]
+    needs: [release, docker]
     if: needs.release.outputs.new-release-published == 'true'
     uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
     with:

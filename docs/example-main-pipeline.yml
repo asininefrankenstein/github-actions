@@ -1,6 +1,5 @@
 # Main branch release pipeline
-# Full pipeline: code analysis → build → test → scan → manual gate
-# → semantic release → release build → test → scan → publish
+# Full pipeline: build → test → manual gate → semantic release → publish
 name: CI/CD (Main)
 
 on:
@@ -12,18 +11,10 @@ permissions:
   packages: write
   issues: write
   pull-requests: write
-  security-events: write
 
 jobs:
-  # ── Stage 1: Code Analysis ─────────────────────────────────────────────────
-  code-scan:
-    uses: jacaudi/github-actions/.github/workflows/code-scan.yml@main
-    with:
-      severity: 'HIGH,CRITICAL'
-
-  # ── Stage 2: Build ephemeral artifact ──────────────────────────────────────
+  # ── Stage 1: Build ephemeral artifact ──────────────────────────────────────
   build-artifact:
-    needs: [code-scan]
     uses: jacaudi/github-actions/.github/workflows/docker-build.yml@main
     with:
       image-name: ${{ github.repository }}
@@ -31,7 +22,7 @@ jobs:
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Stage 3: Test artifact ─────────────────────────────────────────────────
+  # ── Stage 2: Test artifact ─────────────────────────────────────────────────
   test-artifact:
     needs: [build-artifact]
     uses: jacaudi/github-actions/.github/workflows/image-validate.yml@main
@@ -39,22 +30,14 @@ jobs:
       image-ref: ${{ needs.build-artifact.outputs.image-ref }}
       command: 'echo "Image OK"'  # replace with real smoke test
 
-  # ── Stage 4: Scan artifact ─────────────────────────────────────────────────
-  scan-artifact:
-    needs: [build-artifact]
-    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
-    with:
-      image-ref: ${{ needs.build-artifact.outputs.image-ref }}
-      severity: 'HIGH,CRITICAL'
-
-  # ── Stage 5: Manual approval gate ──────────────────────────────────────────
+  # ── Stage 3: Manual approval gate ──────────────────────────────────────────
   release-gate:
-    needs: [test-artifact, scan-artifact]
+    needs: [test-artifact]
     uses: jacaudi/github-actions/.github/workflows/release-gate.yml@main
     with:
       environment: release-approval  # configure in repo Settings → Environments
 
-  # ── Stage 6: Semantic release (creates tag) ────────────────────────────────
+  # ── Stage 4: Semantic release (creates tag) ────────────────────────────────
   semantic-release:
     needs: [release-gate]
     uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
@@ -65,7 +48,7 @@ jobs:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-  # ── Stage 6b: Build release artifact (rebuilt from tag for provenance) ─────
+  # ── Stage 4b: Build release artifact (rebuilt from tag for provenance) ─────
   build-release-artifact:
     needs: [semantic-release]
     if: needs.semantic-release.outputs.new-release-published == 'true'
@@ -77,7 +60,7 @@ jobs:
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Stage 6c: Test release artifact ───────────────────────────────────────
+  # ── Stage 4c: Test release artifact ───────────────────────────────────────
   test-release-artifact:
     needs: [build-release-artifact]
     if: needs.semantic-release.outputs.new-release-published == 'true'
@@ -86,28 +69,19 @@ jobs:
       image-ref: ${{ needs.build-release-artifact.outputs.image-ref }}
       command: 'echo "Release image OK"'
 
-  # ── Stage 6d: Scan release artifact ───────────────────────────────────────
-  scan-release-artifact:
-    needs: [build-release-artifact]
-    if: needs.semantic-release.outputs.new-release-published == 'true'
-    uses: jacaudi/github-actions/.github/workflows/image-scan.yml@main
-    with:
-      image-ref: ${{ needs.build-release-artifact.outputs.image-ref }}
-      severity: 'HIGH,CRITICAL'
-
-  # ── Stage 7 (optional): Helm publish ──────────────────────────────────────
+  # ── Stage 5 (optional): Helm publish ──────────────────────────────────────
   # Uncomment to include Helm chart publishing
   # helm-publish:
-  #   needs: [test-release-artifact, scan-release-artifact]
+  #   needs: [test-release-artifact]
   #   if: needs.semantic-release.outputs.new-release-published == 'true'
   #   uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
   #   with:
   #     chart-name: myapp
   #     version: ${{ needs.semantic-release.outputs.new-release-version }}
 
-  # ── Stage 7 (optional): Webhook notification ──────────────────────────────
+  # ── Stage 5 (optional): Webhook notification ──────────────────────────────
   # webhook:
-  #   needs: [scan-release-artifact]
+  #   needs: [test-release-artifact]
   #   if: needs.semantic-release.outputs.new-release-published == 'true'
   #   uses: jacaudi/github-actions/.github/workflows/webhook.yml@main
   #   with:
@@ -121,14 +95,11 @@ jobs:
   # ── Always last: pipeline summary ─────────────────────────────────────────
   pipeline-summary:
     needs:
-      - code-scan
       - build-artifact
       - test-artifact
-      - scan-artifact
       - release-gate
       - semantic-release
       - build-release-artifact
       - test-release-artifact
-      - scan-release-artifact
     if: always()
     uses: jacaudi/github-actions/.github/workflows/pipeline-summary.yml@main

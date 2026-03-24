@@ -50,10 +50,8 @@ jobs:
           timestamp  = datetime.now(timezone.utc).isoformat()
 
           expected_blocks = [
-              "code-scan",
               "build-artifact",
               "test-artifact",
-              "scan-artifact",
               "release-gate",
               "semantic-release",
               "helm-publish",
