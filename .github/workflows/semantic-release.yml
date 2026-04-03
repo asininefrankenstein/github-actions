@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: ''
+      prepend:
+        description: 'Prepend new entries to existing changelog (cumulative)'
+        required: false
+        type: boolean
+        default: true
       prerelease:
         description: 'Mark release as prerelease'
         required: false
