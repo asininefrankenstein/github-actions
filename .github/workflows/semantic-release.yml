@@ -241,8 +241,11 @@ jobs:
           github-token: ${{ steps.token.outputs.token }}
           dry: ${{ inputs.dry-run }}
           allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          changelog-file: ${{ inputs.changelog-file }}
+          prepend: ${{ inputs.prepend }}
           prerelease: ${{ inputs.prerelease }}
           hooks: ${{ inputs.hooks }}
+          custom-arguments: ${{ inputs.config-file != '' && format('--config {0}', inputs.config-file) || '' }}
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
 
