@@ -1,0 +1,182 @@
+name: Uplift Release
+# Reusable workflow for automatic semantic versioning using Uplift
+# Analyzes conventional commits, bumps configured files, generates changelog,
+# commits, tags, and pushes.
+#
+# Requires:
+# - .uplift.yml in the repo root (configures file bumping)
+# - GitHub App credentials (so the tag triggers downstream workflows)
+# - Full git history (fetch-depth: 0)
+#
+# Usage:
+#   jobs:
+#     release:
+#       uses: jacaudi/github-actions/.github/workflows/uplift.yml@main
+#       with:
+#         use-github-app: true
+#       secrets:
+#         app-id: ${{ secrets.APP_ID }}
+#         app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    inputs:
+      args:
+        description: 'Uplift command and flags (default: release)'
+        required: false
+        type: string
+        default: 'release'
+      dry-run:
+        description: 'Run without making changes'
+        required: false
+        type: boolean
+        default: false
+      use-github-app:
+        description: 'Use GitHub App authentication (enables downstream workflow triggers)'
+        required: false
+        type: boolean
+        default: false
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      app-id:
+        description: 'GitHub App ID (required if use-github-app is true)'
+        required: false
+      app-private-key:
+        description: 'GitHub App private key (required if use-github-app is true)'
+        required: false
+    outputs:
+      version:
+        description: 'The new version tag created (e.g., v0.2.0), empty if no release'
+        value: ${{ jobs.release.outputs.version }}
+      released:
+        description: 'Whether a new version was released (true/false)'
+        value: ${{ jobs.release.outputs.released }}
+
+jobs:
+  release:
+    name: Uplift Release
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      released: ${{ steps.detect.outputs.released }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.use-github-app }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Determine token to use
+        id: token
+        run: |
+          if [[ -n "${{ steps.app-token.outputs.token }}" ]]; then
+            echo "Using GitHub App token (will trigger downstream workflows)"
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=app" >> $GITHUB_OUTPUT
+          else
+            echo "Using GITHUB_TOKEN (will NOT trigger downstream workflows)"
+            echo "token=${{ github.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=github" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Configure git for push
+        run: |
+          git remote set-url origin \
+            "https://x-access-token:${{ steps.token.outputs.token }}@github.com/${{ github.repository }}.git"
+
+      - name: Validate git history
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          TAG_COUNT=$(git tag -l 'v*' | wc -l | tr -d ' ')
+          echo "Commits: ${COMMIT_COUNT}, Tags: ${TAG_COUNT}"
+
+          echo ""
+          echo "Recent commits:"
+          git log --oneline -10 || true
+
+          if [[ "${TAG_COUNT}" != "0" ]]; then
+            echo ""
+            echo "Latest tags:"
+            git tag -l 'v*' --sort=-v:refname | head -5 || true
+          fi
+
+      - name: Record pre-release tag
+        id: before
+        run: |
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Run Uplift
+        uses: gembaadvantage/uplift-action@v2
+        with:
+          args: ${{ inputs.dry-run && format('{0} --dry-run', inputs.args) || inputs.args }}
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Detect new version
+        id: detect
+        run: |
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1 || echo "")
+          BEFORE_TAG="${{ steps.before.outputs.tag }}"
+
+          if [[ -n "${LATEST_TAG}" && "${LATEST_TAG}" != "${BEFORE_TAG}" ]]; then
+            echo "released=true" >> $GITHUB_OUTPUT
+            echo "version=${LATEST_TAG}" >> $GITHUB_OUTPUT
+            echo "New version released: ${LATEST_TAG}"
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+            echo "No new version created"
+          fi
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Uplift Release Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.detect.outputs.released }}" == "true" ]]; then
+            echo ":rocket: **New Version Released**" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            echo ":test_tube: **Dry Run Mode** - No changes made" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":information_source: **No Release Needed** - No qualifying commits found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${{ steps.detect.outputs.version }}" ]]; then
+            echo "| New Version | \`${{ steps.detect.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| New Version | _None_ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "| Dry Run | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Token Type | ${{ steps.token.outputs.token-type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Command | \`uplift ${{ inputs.args }}\` |" >> $GITHUB_STEP_SUMMARY
+
+          # Token warning
+          if [[ "${{ steps.token.outputs.token-type }}" == "github" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> :warning: **Note:** Using GITHUB_TOKEN. Tags created by this workflow will NOT trigger other workflows." >> $GITHUB_STEP_SUMMARY
+            echo "> To trigger downstream workflows, set \`use-github-app: true\` and provide app credentials." >> $GITHUB_STEP_SUMMARY
+          fi

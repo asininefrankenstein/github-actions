@@ -6,7 +6,7 @@ name: CI/CD
 # 2. Release - Auto-version, tag, and release based on Conventional Commits (main branch only)
 #
 # This workflow "dogfoods" the reusable workflows in this repository
-# Uses go-semantic-release for automatic versioning with native feat! support
+# Uses Uplift for automatic versioning with Conventional Commits
 
 on:
   push:
@@ -18,10 +18,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
-  issues: write
-  pull-requests: write
-  security-events: write
 
 jobs:
   # ===========================================================================
@@ -29,7 +25,7 @@ jobs:
   # ===========================================================================
   lint:
     name: Lint
-    uses: ./.github/workflows/lint.yml
+    uses: ./.github/workflows/component-lint.yml
     with:
       yaml: true
       yamllint-config: .yamllint.yml
@@ -37,17 +33,16 @@ jobs:
       # No other linters needed for a workflows-only repo
 
   # ===========================================================================
-  # Stage 2: Semantic Release (auto-version, tag, and release on main branch)
+  # Stage 2: Uplift Release (auto-version, tag, and release on main branch)
   # ===========================================================================
   release:
     name: Release
     needs: [lint]
     # Only run on main branch pushes, not PRs
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/semantic-release.yml
+    uses: ./.github/workflows/component-uplift.yml
     with:
       use-github-app: true
-      allow-initial-development-versions: true
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -59,4 +54,4 @@ jobs:
     name: Pipeline Summary
     needs: [lint, release]
     if: always()
-    uses: ./.github/workflows/pipeline-summary.yml
+    uses: ./.github/workflows/component-pipeline-summary.yml

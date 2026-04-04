@@ -1,30 +1,43 @@
 name: Helm Publish
-# Reusable workflow for publishing Helm charts to OCI registries
+# Reusable workflow for publishing Helm charts to OCI registries.
+# Lints, updates dependencies, publishes, and generates a step summary
+# with pull/install commands.
+#
+# Usage:
+#   jobs:
+#     helm:
+#       uses: jacaudi/github-actions/.github/workflows/helm-publish.yml@main
+#       permissions:
+#         contents: read
+#         packages: write
+#       with:
+#         chart-name: my-app
 
 on:
   workflow_call:
     inputs:
       chart-name:
-        description: 'Name of the Helm chart to publish'
-        required: true
-        type: string
-      chart-path:
-        description: 'Path to the chart directory (defaults to charts/<chart-name>)'
+        description: 'Chart name. Defaults to repository name'
         required: false
         type: string
         default: ''
+      chart-path:
+        description: 'Path to the chart directory'
+        required: false
+        type: string
+        default: 'chart'
       registry:
-        description: 'OCI registry to publish to (e.g., ghcr.io)'
+        description: 'OCI registry to publish to'
         required: false
         type: string
         default: 'ghcr.io'
       registry-username:
-        description: 'Registry username (defaults to github.actor for ghcr.io)'
+        description: 'Registry username (defaults to github.actor)'
         required: false
         type: string
         default: ''
       repository:
-        description: 'Repository owner for the chart (defaults to github.repository_owner)'
+        description: 'Repository path for the chart (defaults to <owner>/charts)'
         required: false
         type: string
         default: ''
@@ -34,7 +47,7 @@ on:
         type: string
         default: ''
       app-version:
-        description: 'App version for the chart (defaults to version with v prefix)'
+        description: 'App version for the chart (defaults to v-prefixed version)'
         required: false
         type: string
         default: ''
@@ -87,22 +100,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Determine chart path
-        id: chart-path
+      - name: Determine chart name
+        id: chart-name
         run: |
-          if [[ -n "${{ inputs.chart-path }}" ]]; then
-            echo "path=${{ inputs.chart-path }}" >> $GITHUB_OUTPUT
+          if [[ -n "${{ inputs.chart-name }}" ]]; then
+            echo "name=${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
           else
-            echo "path=charts/${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
+            echo "name=${{ github.event.repository.name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine repository
+        id: repository
+        run: |
+          if [[ -n "${{ inputs.repository }}" ]]; then
+            echo "owner=${{ inputs.repository }}" >> $GITHUB_OUTPUT
+          else
+            echo "owner=${{ github.repository_owner }}/charts" >> $GITHUB_OUTPUT
           fi
 
       - name: Validate chart exists
         run: |
-          if [[ ! -f "${{ steps.chart-path.outputs.path }}/Chart.yaml" ]]; then
-            echo "::error::Chart.yaml not found at ${{ steps.chart-path.outputs.path }}/Chart.yaml"
+          if [[ ! -f "${{ inputs.chart-path }}/Chart.yaml" ]]; then
+            echo "::error::Chart.yaml not found at ${{ inputs.chart-path }}/Chart.yaml"
             exit 1
           fi
-          echo "Found chart at ${{ steps.chart-path.outputs.path }}"
 
       - name: Extract version
         id: version
@@ -114,31 +135,17 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           else
             # Fall back to version from Chart.yaml
-            VERSION=$(grep '^version:' "${{ steps.chart-path.outputs.path }}/Chart.yaml" | awk '{print $2}')
+            VERSION=$(grep '^version:' "${{ inputs.chart-path }}/Chart.yaml" | awk '{print $2}')
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Determined chart version: ${VERSION}"
 
-      - name: Determine repository
-        id: repository
-        run: |
-          if [[ -n "${{ inputs.repository }}" ]]; then
-            echo "owner=${{ inputs.repository }}" >> $GITHUB_OUTPUT
-          else
-            echo "owner=${{ github.repository_owner }}" >> $GITHUB_OUTPUT
+          # Verify Chart.yaml matches when triggered by tag
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            CHART_VERSION=$(grep '^version:' "${{ inputs.chart-path }}/Chart.yaml" | awk '{print $2}')
+            if [[ "${CHART_VERSION}" != "${VERSION}" ]]; then
+              echo "::warning::Chart.yaml version (${CHART_VERSION}) does not match tag (${VERSION})"
+            fi
           fi
-
-      - name: Helm Lint
-        if: inputs.lint
-        run: |
-          echo "Running helm lint on ${{ steps.chart-path.outputs.path }}..."
-          helm lint "${{ steps.chart-path.outputs.path }}"
-
-      - name: Update Dependencies
-        if: inputs.update-dependencies
-        run: |
-          echo "Updating Helm dependencies for ${{ steps.chart-path.outputs.path }}..."
-          helm dependency update "${{ steps.chart-path.outputs.path }}"
 
       - name: Determine app version
         id: app-version
@@ -147,7 +154,6 @@ jobs:
             APP_VERSION="${{ inputs.app-version }}"
           else
             VERSION="${{ steps.version.outputs.version }}"
-            # Only add v prefix if not already present
             if [[ "${VERSION}" == v* ]]; then
               APP_VERSION="${VERSION}"
             else
@@ -155,17 +161,23 @@ jobs:
             fi
           fi
           echo "app-version=${APP_VERSION}" >> $GITHUB_OUTPUT
-          echo "Determined app version: ${APP_VERSION}"
+
+      - name: Helm Lint
+        if: inputs.lint
+        run: helm lint "${{ inputs.chart-path }}"
+
+      - name: Update Dependencies
+        if: inputs.update-dependencies
+        run: helm dependency update "${{ inputs.chart-path }}"
 
       - name: Publish Helm Chart
-        id: publish
         uses: appany/helm-oci-chart-releaser@v0.5.0
         with:
-          name: ${{ inputs.chart-name }}
+          name: ${{ steps.chart-name.outputs.name }}
           repository: ${{ steps.repository.outputs.owner }}
           tag: ${{ steps.version.outputs.version }}
           app_version: ${{ steps.app-version.outputs.app-version }}
-          path: ${{ steps.chart-path.outputs.path }}
+          path: ${{ inputs.chart-path }}
           registry: ${{ inputs.registry }}
           registry_username: ${{ inputs.registry-username || github.actor }}
           registry_password: ${{ secrets.registry-password || github.token }}
@@ -173,14 +185,19 @@ jobs:
       - name: Set chart info outputs
         id: chart-info
         run: |
-          echo "name=${{ inputs.chart-name }}" >> $GITHUB_OUTPUT
+          echo "name=${{ steps.chart-name.outputs.name }}" >> $GITHUB_OUTPUT
           echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
           echo "app-version=${{ steps.app-version.outputs.app-version }}" >> $GITHUB_OUTPUT
-          echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ steps.chart-name.outputs.name }}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
 
       - name: Generate Summary
         if: always()
         run: |
+          CHART_NAME="${{ steps.chart-name.outputs.name }}"
+          CHART_REPO="${{ steps.repository.outputs.owner }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          APP_VERSION="${{ steps.app-version.outputs.app-version }}"
+
           echo "## Helm Chart Publishing Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -195,50 +212,48 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chart Name | \`${{ inputs.chart-name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| App Version | \`${{ steps.app-version.outputs.app-version }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Chart Path | \`${{ steps.chart-path.outputs.path }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart Name | \`${CHART_NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| App Version | \`${APP_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart Path | \`${{ inputs.chart-path }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Repository | \`${{ steps.repository.outputs.owner }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | \`${CHART_REPO}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Lint | ${{ inputs.lint }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Update Dependencies | ${{ inputs.update-dependencies }} |" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Usage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Pull the chart using:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Pull the chart:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "helm pull oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }} --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "helm pull oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Install the chart using:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Install the chart:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "helm install my-release oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ inputs.chart-name }} --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "helm install my-release oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Write block metadata
         if: always()
         run: |
           STATUS="passed"
-          if [[ "${{ job.status }}" != "success" ]]; then
-            STATUS="failed"
-          fi
-          CHART_VERSION="${{ steps.version.outputs.version }}"
-          REPO="${{ inputs.repository || github.repository_owner }}"
-          CHART_REF="oci://${{ inputs.registry }}/${REPO}/${{ inputs.chart-name }}:${CHART_VERSION}"
+          if [[ "${{ job.status }}" != "success" ]]; then STATUS="failed"; fi
+          CHART_NAME="${{ steps.chart-name.outputs.name }}"
+          CHART_REPO="${{ steps.repository.outputs.owner }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          CHART_REF="oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME}:${VERSION}"
           jq -n \
             --arg block         "helm-publish" \
             --arg status        "${STATUS}" \
             --arg timestamp     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg chart_name    "${{ inputs.chart-name }}" \
-            --arg chart_version "${CHART_VERSION}" \
+            --arg chart_name    "${CHART_NAME}" \
+            --arg chart_version "${VERSION}" \
             --arg chart_ref     "${CHART_REF}" \
             --arg registry      "${{ inputs.registry }}" \
-            '{ block: $block, status: $status, timestamp: $timestamp, chart_name: $chart_name, chart_version: $chart_version, chart_ref: $chart_ref, registry: $registry }' > meta.json
+            '{ block: $block, status: $status, timestamp: $timestamp,
+               chart_name: $chart_name, chart_version: $chart_version,
+               chart_ref: $chart_ref, registry: $registry }' > meta.json
 
       - name: Upload block metadata
         if: always()

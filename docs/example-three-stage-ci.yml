@@ -1,0 +1,90 @@
+---
+# Three-Stage Go Pipeline: CI
+# See docs/pipeline-three-stage-go.md for the full design spec.
+#
+# Runs on push to main: lint, test, manual approval, then uplift
+# (bump files, changelog, commit, tag). The tag triggers release.yml.
+#
+# Required secrets:
+#   APP_ID          - GitHub App ID (tag must trigger release.yml)
+#   APP_PRIVATE_KEY - GitHub App private key
+#
+# Required repo variables (Settings > Variables > Actions):
+#   GO_VERSION          - Go toolchain version (default: stable)
+#   TEST_PACKAGES       - Go test package patterns (default: ./...)
+#   TEST_ARGS           - Extra go test flags (default: empty)
+#   COVERAGE_ENABLED    - Collect coverage (default: true)
+#   COVERAGE_THRESHOLD  - Minimum coverage % (default: 0 = no gate)
+#
+# Required environment:
+#   "release" with required reviewers (Settings > Environments)
+#
+# Required files:
+#   .uplift.yml - configures which files to bump (see design spec)
+name: CI
+
+"on":
+  push:
+    branches: [main]
+
+# Only one release at a time -- queue subsequent runs
+concurrency:
+  group: ci
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Lint (YAML, Helm, Go via reusable workflow) ────────────────────────────
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/component-lint.yml@main
+    permissions:
+      contents: read
+    with:
+      yaml: true
+      helm: true
+      go: true
+      go-version: ${{ vars.GO_VERSION || 'stable' }}
+      helm-chart-path: 'chart'
+
+  # ── Test (Go via reusable workflow) ────────────────────────────────────────
+  test:
+    uses: jacaudi/github-actions/.github/workflows/component-test.yml@main
+    permissions:
+      contents: read
+    with:
+      test-framework: 'go'
+      go-version: ${{ vars.GO_VERSION || 'stable' }}
+      coverage: ${{ vars.COVERAGE_ENABLED != 'false' }}
+      coverage-threshold: ${{ fromJSON(vars.COVERAGE_THRESHOLD || '0') }}
+      test-packages: ${{ vars.TEST_PACKAGES || './...' }}
+      test-args: ${{ vars.TEST_ARGS || '' }}
+
+  # ── Manual Approval Gate ───────────────────────────────────────────────────
+  # Pauses after lint + test pass. A reviewer must approve before uplift runs.
+  # Configure the "release" environment in Settings > Environments with
+  # required reviewers.
+  approve:
+    name: Approve Release
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Release approved
+        run: echo "Release approved, proceeding with uplift..."
+
+  # ── Uplift Release (via reusable workflow) ──────────────────────────────────
+  # Runs after approval. Calculates next semver from conventional commits,
+  # bumps configured files (.uplift.yml), generates changelog, commits, tags,
+  # and pushes. The tag triggers release.yml.
+  release:
+    needs: [approve]
+    uses: jacaudi/github-actions/.github/workflows/component-uplift.yml@main
+    permissions:
+      contents: write
+    with:
+      use-github-app: true
+    secrets:
+      app-id: ${{ secrets.APP_ID }}
+      app-private-key: ${{ secrets.APP_PRIVATE_KEY }}

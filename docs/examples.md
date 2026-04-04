@@ -1,70 +1,39 @@
 # Workflow Templates
 
-Copy and adapt these templates for your own projects.
+Copy and adapt these templates for your own projects. See [pipeline-three-stage-go.md](pipeline-three-stage-go.md) for the full design spec.
 
-## Available Templates
+## Three-Stage Go Pipeline (PR / CI / Release)
 
-| Template | Description |
-|----------|-------------|
-| [example-caller.yml](example-caller.yml) | Basic lint and test |
-| [example-semantic-release.yml](example-semantic-release.yml) | Auto-version + release (recommended) |
-| [example-go-sdk-release.yml](example-go-sdk-release.yml) | Go SDK: lint, test, GoReleaser hooks |
-| [example-docker-helm-release.yml](example-docker-helm-release.yml) | Docker + Helm + security scan |
-| [example-self-release.yml](example-self-release.yml) | For workflow-only repos |
+| Template | Trigger | Description |
+|----------|---------|-------------|
+| [example-three-stage-pr.yml](example-three-stage-pr.yml) | Pull request | Lint, test, Helm verification, container build (no push) |
+| [example-three-stage-ci.yml](example-three-stage-ci.yml) | Push to `main` | Lint, test, manual approval, uplift (bump + changelog + tag) |
+| [example-three-stage-release.yml](example-three-stage-release.yml) | Tag `v*` | Multi-arch container build + push, Helm publish, pipeline summary |
 
 ## Key Concepts
 
 ### Conventional Commits
 
-go-semantic-release uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic versioning.
+Uplift uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic versioning.
 
-**Version bumping behavior differs based on whether you're in initial development (0.x.x) or stable release (≥1.0.0):**
-
-| Commit Type | Version Bump (0.x.x) | Version Bump (≥1.0.0) | Example Commit |
-|-------------|---------------------|----------------------|----------------|
+| Commit Type | 0.x.x Bump | >=1.0.0 Bump | Example |
+|-------------|-----------|-------------|---------|
 | `feat:` | Minor (0.X.0) | Minor (x.Y.0) | `feat: add user auth` |
 | `fix:` | Patch (0.0.X) | Patch (x.y.Z) | `fix: resolve timeout` |
-| `feat!:` | **Minor (0.X.0)** | **Major (X.0.0)** | `feat!: redesign API` |
-| `fix!:` | **Minor (0.X.0)** | **Major (X.0.0)** | `fix!: breaking bugfix` |
-| `chore:`, `docs:`, etc. | Patch (0.0.X) | Patch (x.y.Z) | `chore: update deps` |
-
-**Key Points:**
-- **0.x.x versions:** Breaking changes (`feat!`, `fix!`) bump **minor**, not major (per [semver spec #4](https://semver.org/#spec-item-4))
-- **≥1.0.0 versions:** Breaking changes bump **major** as expected
-- The `!` suffix or `BREAKING CHANGE:` footer marks breaking changes
-
-#### Graduating to v1.0.0
-
-When your project is ready for stable release, you have two options:
-
-**Option 1: Disable initial development mode**
-```yaml
-release:
-  uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
-  with:
-    allow-initial-development-versions: false  # Enforces ≥1.0.0
-```
-
-**Option 2: Manually create v1.0.0 tag**
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-After reaching v1.0.0, all future `feat!` commits will correctly bump major version.
+| `feat!:` | Minor (0.X.0) | **Major (X.0.0)** | `feat!: redesign API` |
+| `chore:`, `docs:`, etc. | No release | No release | `chore: update deps` |
 
 ### GitHub App Token
 
-Releases created by `GITHUB_TOKEN` don't trigger other workflows. Use a GitHub App:
+Tags created by `GITHUB_TOKEN` don't trigger other workflows. The CI workflow uses a GitHub App token so the tag uplift creates triggers the release workflow:
 
 ```yaml
 release:
-  uses: jacaudi/github-actions/.github/workflows/semantic-release.yml@main
-  with:
-    use-github-app: true
-  secrets:
-    app-id: ${{ secrets.APP_ID }}
-    app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+  steps:
+    - uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.APP_ID }}
+        private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
 ### Required Secrets
@@ -73,4 +42,26 @@ release:
 |--------|-------------|
 | `APP_ID` | GitHub App ID |
 | `APP_PRIVATE_KEY` | GitHub App private key |
-| `RENOVATE_TRIGGER_TOKEN` | Token with `workflow` scope (for webhook notifications) |
+
+### Configurable Variables
+
+Set these in **Settings > Secrets and variables > Actions > Variables**:
+
+| Variable | Default | Used by |
+|----------|---------|---------|
+| `GO_VERSION` | `stable` | PR, CI |
+| `TEST_PACKAGES` | `./...` | PR, CI |
+| `TEST_ARGS` | _(empty)_ | PR, CI |
+| `COVERAGE_ENABLED` | `true` | PR, CI |
+| `COVERAGE_THRESHOLD` | `0` | PR, CI |
+| `HELM_CHART_NAME` | Repository name | Release |
+| `HELM_CHART_PATH` | `chart` | Release |
+| `HELM_CHART_REPOSITORY` | `<owner>/charts` | Release |
+
+### Required Files
+
+| File | Purpose |
+|------|---------|
+| `.uplift.yml` | Configures which files to bump and how |
+| `CHANGELOG.md` | Generated/updated by uplift |
+| `chart/Chart.yaml` | Helm chart metadata bumped by uplift |

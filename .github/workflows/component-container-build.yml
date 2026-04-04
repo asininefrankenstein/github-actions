@@ -1,0 +1,375 @@
+name: Container Build
+# Reusable workflow for multi-arch container image builds with native runners.
+# Builds each architecture natively (no QEMU), then merges into a
+# multi-arch manifest.
+#
+# Usage:
+#   jobs:
+#     container:
+#       uses: jacaudi/github-actions/.github/workflows/container-build.yml@main
+#       permissions:
+#         contents: read
+#         packages: write
+#       with:
+#         image-name: ${{ github.repository }}
+#         version: ${{ github.ref_name }}
+
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: 'Container registry (e.g., ghcr.io, docker.io)'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      image-name:
+        description: 'Image name (e.g., owner/repo). Defaults to repository name'
+        required: false
+        type: string
+        default: ''
+      platforms:
+        description: 'Target platforms (comma-separated: linux/amd64, linux/arm64)'
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+      push:
+        description: 'Push image to registry after build'
+        required: false
+        type: boolean
+        default: true
+      context:
+        description: 'Build context path'
+        required: false
+        type: string
+        default: '.'
+      file:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: './Dockerfile'
+      build-args:
+        description: 'Build arguments (newline-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+      tags:
+        description: 'Custom tags (newline-separated, overrides auto-generated tags)'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'Version string for OCI labels (e.g., v0.1.4)'
+        required: false
+        type: string
+        default: ''
+      labels:
+        description: 'Custom labels (newline-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+      cache-from:
+        description: 'Cache sources'
+        required: false
+        type: string
+        default: 'type=gha'
+      cache-to:
+        description: 'Cache destinations'
+        required: false
+        type: string
+        default: 'type=gha,mode=max'
+      provenance:
+        description: 'Generate provenance attestation'
+        required: false
+        type: boolean
+        default: true
+      registry-username:
+        description: 'Registry username (defaults to github.actor)'
+        required: false
+        type: string
+        default: ''
+      amd64-runner:
+        description: 'Runner label for AMD64 builds'
+        required: false
+        type: string
+        default: 'ubuntu-24.04'
+      arm64-runner:
+        description: 'Runner label for ARM64 builds'
+        required: false
+        type: string
+        default: 'ubuntu-24.04-arm'
+    secrets:
+      registry-password:
+        description: 'Registry password/token (defaults to GITHUB_TOKEN for ghcr.io)'
+        required: false
+    outputs:
+      digest:
+        description: 'Image digest'
+        value: ${{ jobs.merge.outputs.digest }}
+      image-ref:
+        description: 'Fully-qualified image reference pinned by digest'
+        value: ${{ jobs.merge.outputs.image-ref }}
+      tags:
+        description: 'Generated tags'
+        value: ${{ jobs.merge.outputs.tags }}
+      version:
+        description: 'Generated version'
+        value: ${{ jobs.merge.outputs.version }}
+
+jobs:
+  # ── Validate platforms and determine build strategy ────────────────────────
+  validate:
+    name: Validate Platforms
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - name: Parse platforms
+        id: parse
+        run: |
+          PLATFORMS="${{ inputs.platforms }}"
+          PLATFORMS=$(echo "${PLATFORMS}" | tr -d ' ' | tr '[:upper:]' '[:lower:]' | sed 's/,$//')
+
+          IFS=',' read -ra PLATFORM_ARRAY <<< "${PLATFORMS}"
+          VALID_PLATFORMS=("linux/amd64" "linux/arm64")
+
+          for platform in "${PLATFORM_ARRAY[@]}"; do
+            if [[ -z "${platform}" ]]; then continue; fi
+            if [[ ! " ${VALID_PLATFORMS[*]} " =~ " ${platform} " ]]; then
+              echo "::error::Unsupported platform: ${platform}. Only linux/amd64 and linux/arm64 are supported."
+              exit 1
+            fi
+          done
+
+          # Build matrix with platform-specific runners
+          INCLUDES="["
+          FIRST=true
+          for platform in "${PLATFORM_ARRAY[@]}"; do
+            [[ -z "${platform}" ]] && continue
+            if [[ "${FIRST}" != "true" ]]; then INCLUDES="${INCLUDES},"; fi
+            FIRST=false
+            if [[ "${platform}" == "linux/amd64" ]]; then
+              INCLUDES="${INCLUDES}{\"platform\":\"linux/amd64\",\"runner\":\"${{ inputs.amd64-runner }}\"}"
+            else
+              INCLUDES="${INCLUDES}{\"platform\":\"linux/arm64\",\"runner\":\"${{ inputs.arm64-runner }}\"}"
+            fi
+          done
+          INCLUDES="${INCLUDES}]"
+
+          echo "matrix={\"include\":${INCLUDES}}" >> "$GITHUB_OUTPUT"
+          echo "Platforms: ${PLATFORMS}"
+
+  # ── Build images natively on platform-specific runners ─────────────────────
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.validate.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Determine image name
+        id: image-name
+        run: |
+          if [[ -n "${{ inputs.image-name }}" ]]; then
+            echo "name=${{ inputs.image-name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.repository }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ steps.image-name.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=
+          labels: |
+            ${{ inputs.version && format('org.opencontainers.image.version={0}', inputs.version) || '' }}
+
+      - name: Build and push by digest
+        id: build-multi
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          platforms: ${{ matrix.platform }}
+          labels: ${{ inputs.labels || steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
+          cache-from: ${{ inputs.cache-from }}
+          cache-to: ${{ inputs.cache-to }}
+          provenance: ${{ inputs.provenance }}
+          outputs: >-
+            type=image,
+            name=${{ inputs.registry }}/${{ steps.image-name.outputs.name }},
+            push-by-digest=true,
+            name-canonical=true,
+            push=${{ inputs.push }}
+
+      - name: Export digest
+        if: inputs.push
+        run: |
+          mkdir -p /tmp/digests
+          ARCH="${{ matrix.platform }}"
+          ARCH="${ARCH#linux/}"
+          echo "${{ steps.build-multi.outputs.digest }}" > "/tmp/digests/${ARCH}"
+
+      - name: Upload digest
+        if: inputs.push
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # ── Merge platform images into multi-arch manifest ─────────────────────────
+  merge:
+    name: Create Multi-arch Manifest
+    if: inputs.push
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.inspect.outputs.digest }}
+      image-ref: ${{ steps.inspect.outputs.image-ref }}
+      tags: ${{ inputs.tags || steps.meta.outputs.tags }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Determine image name
+        id: image-name
+        run: |
+          if [[ -n "${{ inputs.image-name }}" ]]; then
+            echo "name=${{ inputs.image-name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.repository }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ steps.image-name.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ inputs.registry }}/${{ steps.image-name.outputs.name }}"
+
+          # Read all available digests
+          DIGEST_ARGS=""
+          for digest_file in *; do
+            DIGEST=$(cat "${digest_file}")
+            DIGEST_ARGS="${DIGEST_ARGS} ${IMAGE}@${DIGEST}"
+            echo "Found digest for ${digest_file}: ${DIGEST}"
+          done
+
+          # Build tag arguments
+          TAGS="${{ inputs.tags || steps.meta.outputs.tags }}"
+          TAGARGS=""
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] && TAGARGS="${TAGARGS} --tag ${tag}"
+          done <<< "${TAGS}"
+
+          docker buildx imagetools create ${TAGARGS} ${DIGEST_ARGS}
+
+      - name: Inspect manifest
+        id: inspect
+        run: |
+          IMAGE="${{ inputs.registry }}/${{ steps.image-name.outputs.name }}"
+          TAG=$(echo "${{ inputs.tags || steps.meta.outputs.tags }}" | head -1)
+
+          DIGEST=$(docker buildx imagetools inspect "${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "image-ref=${IMAGE}@${DIGEST}" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary
+        run: |
+          echo "## Docker Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo ":white_check_mark: **Multi-arch Build Successful**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.image-name.outputs.name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platforms | \`${{ inputs.platforms }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | Native runners (parallel) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.inspect.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tags" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ inputs.tags || steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Write block metadata
+        if: always()
+        run: |
+          STATUS="passed"
+          if [[ "${{ job.status }}" != "success" ]]; then STATUS="failed"; fi
+          TAGS_JSON=$(echo "${{ inputs.tags || steps.meta.outputs.tags }}" | jq -R -s 'split("\n") | map(select(. != ""))')
+          jq -n \
+            --arg block     "build-artifact" \
+            --arg status    "${STATUS}" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg image_ref "${{ steps.inspect.outputs.image-ref }}" \
+            --arg digest    "${{ steps.inspect.outputs.digest }}" \
+            --arg version   "${{ steps.meta.outputs.version }}" \
+            --argjson tags  "${TAGS_JSON}" \
+            '{ block: $block, status: $status, timestamp: $timestamp,
+               image_ref: $image_ref, digest: $digest, version: $version,
+               tags: $tags, platforms: ${{ toJSON(inputs.platforms) }} }' > meta.json
+
+      - name: Upload block metadata
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-meta-build-artifact
+          path: meta.json
+          retention-days: 30

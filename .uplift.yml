@@ -1,0 +1,3 @@
+# Uplift configuration for jacaudi/github-actions
+# Workflows-only repo -- no files to bump, just changelog + tag
+bumps: []
