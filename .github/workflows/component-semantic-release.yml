@@ -1,0 +1,332 @@
+name: Semantic Release
+# Reusable workflow for automatic semantic versioning using go-semantic-release
+# Analyzes commit history, creates version tags + GitHub Releases, and
+# optionally generates/updates a changelog file.
+#
+# Features:
+# - Native feat! syntax support for breaking changes
+# - Automatic tag + GitHub Release creation
+# - Optional changelog file generation
+# - Optional GitHub App authentication for triggering downstream workflows
+# - Plugin support (goreleaser, helm, npm-binary-releaser, exec)
+#
+# Usage:
+#   jobs:
+#     release:
+#       uses: jacaudi/github-actions/.github/workflows/component-semantic-release.yml@main
+#       with:
+#         use-github-app: true
+#       secrets:
+#         app-id: ${{ secrets.APP_ID }}
+#         app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        description: 'Run in dry-run mode (no tags or releases created)'
+        required: false
+        type: boolean
+        default: false
+      allow-initial-development-versions:
+        description: 'Allow versions < 1.0.0 (initial development)'
+        required: false
+        type: boolean
+        default: true
+      changelog-file:
+        description: 'Path to changelog file (empty = no file created)'
+        required: false
+        type: string
+        default: ''
+      prepend:
+        description: 'Prepend new entries to existing changelog (cumulative)'
+        required: false
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark release as prerelease'
+        required: false
+        type: boolean
+        default: false
+      create-release:
+        description: 'Create a GitHub Release (set false for tag-only mode)'
+        required: false
+        type: boolean
+        default: true
+      hooks:
+        description: 'Hooks to run (e.g., goreleaser, npm-binary-releaser, exec)'
+        required: false
+        type: string
+        default: ''
+      config-file:
+        description: 'Path to .semrelrc config file'
+        required: false
+        type: string
+        default: ''
+      validate-config:
+        description: 'Validate .semrelrc JSON syntax before release'
+        required: false
+        type: boolean
+        default: true
+      use-github-app:
+        description: 'Use GitHub App authentication (enables downstream workflow triggers)'
+        required: false
+        type: boolean
+        default: false
+      runs-on:
+        description: 'Runner label to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      app-id:
+        description: 'GitHub App ID (required if use-github-app is true)'
+        required: false
+      app-private-key:
+        description: 'GitHub App private key (required if use-github-app is true)'
+        required: false
+    outputs:
+      new-release-published:
+        description: 'Whether a new release was published (true/false)'
+        value: ${{ jobs.release.outputs.new-release-published }}
+      new-release-version:
+        description: 'The new version that was released (e.g., v1.2.3)'
+        value: ${{ jobs.release.outputs.new-release-version }}
+      new-release-major-version:
+        description: 'Major version number'
+        value: ${{ jobs.release.outputs.new-release-major-version }}
+      new-release-minor-version:
+        description: 'Minor version number'
+        value: ${{ jobs.release.outputs.new-release-minor-version }}
+      new-release-patch-version:
+        description: 'Patch version number'
+        value: ${{ jobs.release.outputs.new-release-patch-version }}
+      new-release-git-head:
+        description: 'Git commit SHA of the release'
+        value: ${{ jobs.release.outputs.new-release-git-head }}
+      new-release-git-tag:
+        description: 'Git tag created for the release'
+        value: ${{ jobs.release.outputs.new-release-git-tag }}
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new-release-published: ${{ steps.release.outputs.new-release-published }}
+      new-release-version: ${{ steps.release.outputs.new-release-version }}
+      new-release-major-version: ${{ steps.release.outputs.new-release-major-version }}
+      new-release-minor-version: ${{ steps.release.outputs.new-release-minor-version }}
+      new-release-patch-version: ${{ steps.release.outputs.new-release-patch-version }}
+      new-release-git-head: ${{ steps.release.outputs.new-release-git-head }}
+      new-release-git-tag: ${{ steps.release.outputs.new-release-git-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Validate git history
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          TAG_COUNT=$(git tag -l 'v*' | wc -l | tr -d ' ')
+          echo "Commits: ${COMMIT_COUNT}, Tags: ${TAG_COUNT}"
+
+          echo ""
+          echo "Recent commits:"
+          git log --oneline -10 || true
+
+          if [[ "${TAG_COUNT}" != "0" ]]; then
+            echo ""
+            echo "Latest tags:"
+            git tag -l 'v*' --sort=-v:refname | head -5 || true
+          fi
+
+      - name: Validate .semrelrc config
+        if: inputs.validate-config
+        run: |
+          CONFIG_FILE="${{ inputs.config-file }}"
+          if [[ -z "${CONFIG_FILE}" ]]; then
+            CONFIG_FILE=".semrelrc"
+          fi
+
+          if [[ -f "${CONFIG_FILE}" ]]; then
+            echo "Validating ${CONFIG_FILE} JSON syntax..."
+            if ! jq empty "${CONFIG_FILE}" 2>&1; then
+              echo "::error::${CONFIG_FILE} contains invalid JSON."
+              exit 1
+            fi
+            echo "${CONFIG_FILE} is valid JSON"
+          else
+            echo "No config file found at ${CONFIG_FILE} (using defaults)"
+          fi
+
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.use-github-app }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - name: Determine token to use
+        id: token
+        run: |
+          if [[ -n "${{ steps.app-token.outputs.token }}" ]]; then
+            echo "Using GitHub App token (will trigger downstream workflows)"
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=app" >> $GITHUB_OUTPUT
+          else
+            echo "Using GITHUB_TOKEN (will NOT trigger downstream workflows)"
+            echo "token=${{ github.token }}" >> $GITHUB_OUTPUT
+            echo "token-type=github" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run go-semantic-release
+        id: semrel
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          dry: ${{ inputs.dry-run }}
+          allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          changelog-file: ${{ inputs.changelog-file }}
+          prepend: ${{ inputs.prepend }}
+          prerelease: ${{ inputs.prerelease }}
+          hooks: ${{ inputs.hooks }}
+          custom-arguments: ${{ inputs.config-file != '' && format('--config {0}', inputs.config-file) || '' }}
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Delete GitHub Release (tag-only mode)
+        if: ${{ !inputs.create-release && !inputs.dry-run && steps.semrel.outputs.version != '' }}
+        run: gh release delete "v${{ steps.semrel.outputs.version }}" --yes
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+
+      - name: Process release results
+        id: release
+        run: |
+          VERSION="${{ steps.semrel.outputs.version }}"
+
+          if [[ -n "${VERSION}" ]]; then
+            VERSION_TAG="v${VERSION}"
+
+            echo "new-release-published=true" >> $GITHUB_OUTPUT
+            echo "new-release-version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+            echo "new-release-git-tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+
+            GIT_HEAD=$(git rev-parse HEAD)
+            echo "new-release-git-head=${GIT_HEAD}" >> $GITHUB_OUTPUT
+
+            echo "new-release-major-version=${{ steps.semrel.outputs.version_major }}" >> $GITHUB_OUTPUT
+            echo "new-release-minor-version=${{ steps.semrel.outputs.version_minor }}" >> $GITHUB_OUTPUT
+            echo "new-release-patch-version=${{ steps.semrel.outputs.version_patch }}" >> $GITHUB_OUTPUT
+
+            echo "New version released: ${VERSION_TAG}"
+          else
+            echo "new-release-published=false" >> $GITHUB_OUTPUT
+            echo "new-release-version=" >> $GITHUB_OUTPUT
+            echo "new-release-git-tag=" >> $GITHUB_OUTPUT
+            echo "new-release-git-head=" >> $GITHUB_OUTPUT
+            echo "new-release-major-version=" >> $GITHUB_OUTPUT
+            echo "new-release-minor-version=" >> $GITHUB_OUTPUT
+            echo "new-release-patch-version=" >> $GITHUB_OUTPUT
+
+            echo "No new version created (no qualifying commits since last release)"
+          fi
+
+      - name: Commit changelog
+        if: >-
+          steps.release.outputs.new-release-published == 'true' &&
+          inputs.changelog-file != '' &&
+          !inputs.dry-run
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ steps.token.outputs.token }}@github.com/${{ github.repository }}.git"
+          git add "${{ inputs.changelog-file }}"
+          git commit -m "docs: update changelog for ${{ steps.release.outputs.new-release-version }} [skip ci]" || true
+          git push
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Semantic Release Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.release.outputs.new-release-published }}" == "true" && "${{ inputs.create-release }}" == "false" ]]; then
+            echo ":label: **Tag Created** (tag-only mode)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ steps.release.outputs.new-release-published }}" == "true" ]]; then
+            echo ":rocket: **New Version Released**" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            echo ":test_tube: **Dry Run Mode** - No changes made" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":information_source: **No Release Needed** - No qualifying commits found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${{ steps.release.outputs.new-release-version }}" ]]; then
+            echo "| New Version | \`${{ steps.release.outputs.new-release-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Major | \`${{ steps.release.outputs.new-release-major-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Minor | \`${{ steps.release.outputs.new-release-minor-version }}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Patch | \`${{ steps.release.outputs.new-release-patch-version }}\` |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| New Version | _None_ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "| Dry Run | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag-Only Mode | ${{ !inputs.create-release }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Token Type | ${{ steps.token.outputs.token-type }} |" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.token.outputs.token-type }}" == "github" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> :warning: **Note:** Using GITHUB_TOKEN. Tags/releases created by this workflow will NOT trigger other workflows." >> $GITHUB_STEP_SUMMARY
+            echo "> To trigger downstream workflows, set \`use-github-app: true\` and provide app credentials." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${{ steps.release.outputs.new-release-published }}" == "true" && "${{ inputs.create-release }}" != "false" ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Links" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+            echo "- [View Tag](https://github.com/${{ github.repository }}/tree/${{ steps.release.outputs.new-release-version }})" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Write block metadata
+        if: always()
+        run: |
+          STATUS="passed"
+          if [[ "${{ job.status }}" != "success" ]]; then STATUS="failed"; fi
+          PUBLISHED="${{ steps.release.outputs.new-release-published }}"
+          if [[ "${PUBLISHED}" == "true" ]]; then PUBLISHED_BOOL=true; else PUBLISHED_BOOL=false; fi
+          jq -n \
+            --arg block "semantic-release" \
+            --arg status "${STATUS}" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson new_release_published "${PUBLISHED_BOOL}" \
+            --arg version "${{ steps.release.outputs.new-release-version }}" \
+            --arg git_tag "${{ steps.release.outputs.new-release-git-tag }}" \
+            --arg git_head "${{ steps.release.outputs.new-release-git-head }}" \
+            '{ block: $block, status: $status, timestamp: $timestamp,
+               new_release_published: $new_release_published,
+               version: $version, git_tag: $git_tag, git_head: $git_head }' > meta.json
+
+      - name: Upload block metadata
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-meta-semantic-release
+          path: meta.json
+          retention-days: 30

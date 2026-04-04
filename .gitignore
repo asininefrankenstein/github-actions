@@ -12,5 +12,8 @@ logs/security/
 # Private journal (MCP server data)
 .private-journal/
 
+# go-semantic-release plugin cache
+.semrel/
+
 # Planning documents (local only)
 docs/plans/

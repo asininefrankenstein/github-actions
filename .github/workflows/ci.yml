@@ -6,7 +6,7 @@ name: CI/CD
 # 2. Release - Auto-version, tag, and release based on Conventional Commits (main branch only)
 #
 # This workflow "dogfoods" the reusable workflows in this repository
-# Uses Uplift for automatic versioning with Conventional Commits
+# Uses go-semantic-release for automatic versioning with Conventional Commits
 
 on:
   push:
@@ -33,16 +33,17 @@ jobs:
       # No other linters needed for a workflows-only repo
 
   # ===========================================================================
-  # Stage 2: Uplift Release (auto-version, tag, and release on main branch)
+  # Stage 2: Semantic Release (auto-version, tag, and release on main branch)
   # ===========================================================================
   release:
     name: Release
     needs: [lint]
     # Only run on main branch pushes, not PRs
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/component-uplift.yml
+    uses: ./.github/workflows/component-semantic-release.yml
     with:
       use-github-app: true
+      allow-initial-development-versions: true
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}

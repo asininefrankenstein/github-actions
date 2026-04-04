@@ -2,8 +2,8 @@
 # Three-Stage Go Pipeline: CI
 # See docs/pipeline-three-stage-go.md for the full design spec.
 #
-# Runs on push to main: lint, test, manual approval, then uplift
-# (bump files, changelog, commit, tag). The tag triggers release.yml.
+# Runs on push to main: lint, test, manual approval, then semantic release
+# (tag, GitHub Release, changelog). The tag triggers release.yml.
 #
 # Required secrets:
 #   APP_ID          - GitHub App ID (tag must trigger release.yml)
@@ -19,8 +19,8 @@
 # Required environment:
 #   "release" with required reviewers (Settings > Environments)
 #
-# Required files:
-#   .uplift.yml - configures which files to bump (see design spec)
+# Optional files:
+#   .semrelrc - go-semantic-release config (JSON, uses defaults if absent)
 name: CI
 
 "on":
@@ -74,17 +74,21 @@ jobs:
       - name: Release approved
         run: echo "Release approved, proceeding with uplift..."
 
-  # ── Uplift Release (via reusable workflow) ──────────────────────────────────
+  # ── Semantic Release (via reusable workflow) ─────────────────────────────────
   # Runs after approval. Calculates next semver from conventional commits,
-  # bumps configured files (.uplift.yml), generates changelog, commits, tags,
-  # and pushes. The tag triggers release.yml.
+  # creates a git tag + GitHub Release, and optionally commits a changelog.
+  # The tag triggers release.yml.
   release:
     needs: [approve]
-    uses: jacaudi/github-actions/.github/workflows/component-uplift.yml@main
+    uses: jacaudi/github-actions/.github/workflows/component-semantic-release.yml@main
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
     with:
       use-github-app: true
+      allow-initial-development-versions: true
+      changelog-file: CHANGELOG.md
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
