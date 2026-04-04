@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: ''
+      prepend:
+        description: 'Prepend new entries to existing changelog (cumulative)'
+        required: false
+        type: boolean
+        default: true
       prerelease:
         description: 'Mark release as prerelease'
         required: false
@@ -191,44 +196,6 @@ jobs:
             echo "token-type=github" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build semantic-release arguments
-        id: args
-        run: |
-          ARGS=""
-
-          # Add dry-run flag
-          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
-            ARGS="${ARGS} --dry"
-          fi
-
-          # Add allow-initial-development-versions flag
-          if [[ "${{ inputs.allow-initial-development-versions }}" == "true" ]]; then
-            ARGS="${ARGS} --allow-initial-development-versions"
-          fi
-
-          # Add changelog file
-          if [[ -n "${{ inputs.changelog-file }}" ]]; then
-            ARGS="${ARGS} --changelog ${{ inputs.changelog-file }}"
-          fi
-
-          # Add prerelease flag
-          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
-            ARGS="${ARGS} --prerelease"
-          fi
-
-          # Add hooks
-          if [[ -n "${{ inputs.hooks }}" ]]; then
-            ARGS="${ARGS} --hooks ${{ inputs.hooks }}"
-          fi
-
-          # Add config file
-          if [[ -n "${{ inputs.config-file }}" ]]; then
-            ARGS="${ARGS} --config ${{ inputs.config-file }}"
-          fi
-
-          echo "Semantic release arguments: ${ARGS}"
-          echo "args=${ARGS}" >> $GITHUB_OUTPUT
-
       - name: Run go-semantic-release
         id: semrel
         uses: go-semantic-release/action@v1
@@ -236,8 +203,11 @@ jobs:
           github-token: ${{ steps.token.outputs.token }}
           dry: ${{ inputs.dry-run }}
           allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          changelog-file: ${{ inputs.changelog-file }}
+          prepend: ${{ inputs.prepend }}
           prerelease: ${{ inputs.prerelease }}
           hooks: ${{ inputs.hooks }}
+          custom-arguments: ${{ inputs.config-file != '' && format('--config {0}', inputs.config-file) || '' }}
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
 
@@ -284,6 +254,20 @@ jobs:
 
             echo "No new version created (no qualifying commits since last release)"
           fi
+
+      - name: Commit changelog
+        if: >-
+          steps.release.outputs.new-release-published == 'true' &&
+          inputs.changelog-file != '' &&
+          !inputs.dry-run
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ steps.token.outputs.token }}@github.com/${{ github.repository }}.git"
+          git add "${{ inputs.changelog-file }}"
+          git commit -m "docs: update changelog for ${{ steps.release.outputs.new-release-version }} [skip ci]" || true
+          git push
 
       - name: Generate Summary
         if: always()
