@@ -1,17 +1,31 @@
-## 0.15.1 (2026-04-04)
-
-#### Bug Fixes
-
-* add changelog-file input to ci.yml semantic release job (943c1216)
-
-
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [v0.15.1](https://github.com/jacaudi/github-actions/releases/tag/v0.15.1) - 2026-04-04
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Bug Fixes
 
-## Unreleased
+- [`943c121`](https://github.com/jacaudi/github-actions/commit/943c1216) fix: add changelog-file input to ci.yml semantic release job
+
+## [v0.15.0](https://github.com/jacaudi/github-actions/releases/tag/v0.15.0) - 2026-04-04
+
+### Breaking Changes
+
+- [`6638b09`](https://github.com/jacaudi/github-actions/commit/6638b09b) replace uplift with go-semantic-release for versioning
+- [`809f593`](https://github.com/jacaudi/github-actions/commit/809f5933) replace go-semantic-release with uplift, restructure as three-stage pipeline
+  - All reusable workflow paths changed from `workflows/<name>.yml` to `workflows/component-<name>.yml`
+  - Add pipeline design spec, component workflows, and example templates
+  - Remove old workflows: docker-build, helm-publish, release-gate, image-validate, webhook, test scaffolds
+  - Remove old example templates
+
+### Bug Fixes
+
+- [`b3ab80c`](https://github.com/jacaudi/github-actions/commit/b3ab80cc) fix: add missing permissions for semantic-release in ci workflows
+
+### Documentation
+
+- [`3a4ef75`](https://github.com/jacaudi/github-actions/commit/3a4ef752) docs: clean up changelog, remove orphaned entries from semrel migration
+
+---
 
 ## [v0.14.2](https://github.com/jacaudi/github-actions/releases/tag/v0.14.2) - 2026-04-03
 

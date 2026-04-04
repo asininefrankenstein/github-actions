@@ -1,94 +1,61 @@
 # Architecture Guide
 
-A concise reference for the building block CI/CD design used in this repository.
+A concise reference for the component-based CI/CD design used in this repository.
 
 ---
 
 ## Philosophy
 
-Each workflow in this repository is a **building block**: one responsibility, one artifact. Blocks compose into E2E pipelines by declaring `needs:` dependencies between jobs. Because every block is a standalone reusable workflow, individual blocks can be tested, versioned, and reused across pipelines without modification.
+Each workflow is a **component**: one responsibility, one artifact. Components compose into pipelines by declaring `needs:` dependencies between jobs. Because every component is a standalone reusable workflow, individual components can be tested, versioned, and reused across pipelines without modification.
 
-The two rules that make composition work:
+Two rules make composition work:
 
-1. **One block = one `pipeline-meta-{block}` artifact.** Every block uploads its result metadata as a named artifact so downstream jobs and the summary collector can consume it.
-2. **Blocks do not know about each other.** A block reads its own inputs, does its work, and writes its metadata. Orchestration is the caller's responsibility.
+1. **One component = one `pipeline-meta-{block}` artifact.** Every component uploads its result metadata so downstream jobs and the summary collector can consume it.
+2. **Components do not know about each other.** A component reads its own inputs, does its work, and writes its metadata. Orchestration is the caller's responsibility.
 
 ---
 
-## Block Catalogue
+## Component Catalogue
 
-| Block | Workflow | Artifact | Stage |
-|-------|----------|----------|-------|
-| build-artifact | docker-build.yml | pipeline-meta-build-artifact | 1: Build |
-| test-artifact | image-validate.yml | pipeline-meta-test-artifact | 2: Test |
-| release-gate | release-gate.yml | pipeline-meta-release-gate | 3: Manual Gate |
-| semantic-release | semantic-release.yml | pipeline-meta-semantic-release | 6: Release |
-| helm-publish | helm-publish.yml | pipeline-meta-helm-publish | Optional |
-| webhook | webhook.yml | pipeline-meta-webhook | Optional |
-| pipeline-summary | pipeline-summary.yml | pipeline-metadata | Collector |
+| Component | Workflow | Artifact | Purpose |
+|-----------|----------|----------|---------|
+| lint | component-lint.yml | lint-results-* | Multi-language linting |
+| test | component-test.yml | test-results | Test runner with coverage |
+| semantic-release | component-semantic-release.yml | pipeline-meta-semantic-release | Version, tag, GitHub Release |
+| container-build | component-container-build.yml | pipeline-meta-build-artifact | Multi-arch container images |
+| helm-publish | component-helm-publish.yml | pipeline-meta-helm-publish | Helm chart OCI publishing |
+| pipeline-summary | component-pipeline-summary.yml | pipeline-metadata | Metadata collector |
 
-Stages 1–6 represent the canonical ordering for a full production pipeline. Optional blocks slot in wherever the calling pipeline needs them. The `pipeline-summary` block always runs last.
+---
+
+## Three-Stage Pipeline
+
+The prescribed pipeline pattern splits CI/CD into three workflow files:
+
+| Stage | Workflow | Trigger | Components |
+|-------|----------|---------|------------|
+| PR | `pr.yml` | Pull request | lint, test, container-build (no push) |
+| CI | `ci.yml` | Push to main | lint, test, approval gate, semantic-release |
+| Release | `release.yml` | Tag `v*` | container-build, helm-publish, pipeline-summary |
+
+See [pipeline-three-stage-go.md](pipeline-three-stage-go.md) for the full design spec and [examples.md](examples.md) for ready-to-use templates.
 
 ---
 
 ## Artifact Convention
 
-**Per-block artifacts** follow the naming pattern `pipeline-meta-{block}` and contain a single file, `meta.json`, with the block's result data. Retention is 30 days.
+**Per-component artifacts** follow the naming pattern `pipeline-meta-{block}` and contain a single file, `meta.json`, with the component's result data. Retention is 30 days.
 
-**The merged artifact** produced by `pipeline-summary` is named `pipeline-metadata` and contains `pipeline-metadata.json` — a single document that aggregates all block results for the run. Retention is 90 days.
-
-JSON Schema Draft-07 files in `docs/schemas/` document the exact shape of each block's `meta.json` as well as the merged `pipeline-metadata.json`:
-
-| Schema file | Describes |
-|-------------|-----------|
-| `docs/schemas/meta-build.json` | `pipeline-meta-build-artifact` artifact |
-| `docs/schemas/meta-test-artifact.json` | `pipeline-meta-test-artifact` artifact |
-| `docs/schemas/meta-release-gate.json` | `pipeline-meta-release-gate` artifact |
-| `docs/schemas/meta-release.json` | `pipeline-meta-semantic-release` artifact |
-| `docs/schemas/meta-helm.json` | `pipeline-meta-helm-publish` artifact |
-| `docs/schemas/meta-webhook.json` | `pipeline-meta-webhook` artifact |
-| `docs/schemas/meta-pipeline.json` | merged `pipeline-metadata` artifact |
+**The merged artifact** produced by `pipeline-summary` is named `pipeline-metadata` and contains `pipeline-metadata.json` -- a single document that aggregates all component results for the run. Retention is 90 days.
 
 ---
 
 ## `did-not-run` Sentinel
 
-`pipeline-summary` iterates over the fixed list of known blocks. For any block whose `pipeline-meta-{block}` artifact is absent — because that block was not included in this pipeline run — the merged metadata records:
+`pipeline-summary` iterates over a fixed list of known blocks. For any block whose `pipeline-meta-{block}` artifact is absent, the merged metadata records:
 
 ```json
 { "status": "did-not-run" }
 ```
 
-This ensures the merged document always has an entry for every block, making downstream consumers (dashboards, compliance checks) straightforward to write without special-casing missing keys.
-
----
-
-## Three Prescribed E2E Pipelines
-
-Three reference pipelines covering the common development workflow are provided in `docs/`:
-
-### `docs/example-dev-pipeline.yml` — Feature branch / dev push
-
-Runs on every push to a feature branch. Executes the fast feedback loop: lint only. No build, no release.
-
-### `docs/example-pr-pipeline.yml` — Pull request
-
-Runs on `pull_request` events. Executes build and test. No release gate or semantic release — produces a validated build artifact for review.
-
-### `docs/example-main-pipeline.yml` — Main branch / production
-
-Runs on push to `main`. Executes the full pipeline: build → test → release gate (manual approval) → semantic release → helm publish → webhook → pipeline summary.
-
-All three pipelines end with `pipeline-summary` using `if: always()` to capture metadata regardless of intermediate failures.
-
----
-
-## Schemas
-
-JSON Schema Draft-07 files in `docs/schemas/` provide machine-readable contracts for every block's artifact output. Use them to:
-
-- Validate `meta.json` files in tests or local tooling
-- Generate typed clients for consuming pipeline metadata
-- Document the fields that each block guarantees to emit
-
-The top-level merged schema is `docs/schemas/meta-pipeline.json`. It includes the `blocks` object whose property keys are the block names from the catalogue above and whose values conform to the individual block schemas.
+This ensures the merged document always has an entry for every block, making downstream consumers straightforward to write without special-casing missing keys.
