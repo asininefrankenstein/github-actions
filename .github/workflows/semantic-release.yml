@@ -196,44 +196,6 @@ jobs:
             echo "token-type=github" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build semantic-release arguments
-        id: args
-        run: |
-          ARGS=""
-
-          # Add dry-run flag
-          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
-            ARGS="${ARGS} --dry"
-          fi
-
-          # Add allow-initial-development-versions flag
-          if [[ "${{ inputs.allow-initial-development-versions }}" == "true" ]]; then
-            ARGS="${ARGS} --allow-initial-development-versions"
-          fi
-
-          # Add changelog file
-          if [[ -n "${{ inputs.changelog-file }}" ]]; then
-            ARGS="${ARGS} --changelog ${{ inputs.changelog-file }}"
-          fi
-
-          # Add prerelease flag
-          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
-            ARGS="${ARGS} --prerelease"
-          fi
-
-          # Add hooks
-          if [[ -n "${{ inputs.hooks }}" ]]; then
-            ARGS="${ARGS} --hooks ${{ inputs.hooks }}"
-          fi
-
-          # Add config file
-          if [[ -n "${{ inputs.config-file }}" ]]; then
-            ARGS="${ARGS} --config ${{ inputs.config-file }}"
-          fi
-
-          echo "Semantic release arguments: ${ARGS}"
-          echo "args=${ARGS}" >> $GITHUB_OUTPUT
-
       - name: Run go-semantic-release
         id: semrel
         uses: go-semantic-release/action@v1
