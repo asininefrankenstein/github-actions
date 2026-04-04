@@ -260,6 +260,7 @@ jobs:
           steps.release.outputs.new-release-published == 'true' &&
           inputs.changelog-file != '' &&
           !inputs.dry-run
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
