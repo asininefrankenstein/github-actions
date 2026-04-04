@@ -255,6 +255,19 @@ jobs:
             echo "No new version created (no qualifying commits since last release)"
           fi
 
+      - name: Commit changelog
+        if: >-
+          steps.release.outputs.new-release-published == 'true' &&
+          inputs.changelog-file != '' &&
+          !inputs.dry-run
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ steps.token.outputs.token }}@github.com/${{ github.repository }}.git"
+          git add "${{ inputs.changelog-file }}"
+          git commit -m "docs: update changelog for ${{ steps.release.outputs.new-release-version }} [skip ci]" || true
+          git push
+
       - name: Generate Summary
         if: always()
         run: |
