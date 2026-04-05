@@ -1,3 +1,14 @@
+## 0.15.3 (2026-04-05)
+
+#### Bug Fixes
+
+* use non-conventional commit message for changelog commit ([a1ebee1d](https://github.com/jacaudi/github-actions/commit/a1ebee1d468fc1df69d8e8e5f7fd2b5059889230))
+
+#### Chores
+
+* **changelog:** update for v0.15.2 [skip ci] ([9bf76451](https://github.com/jacaudi/github-actions/commit/9bf76451c6a853a477248959eadfd35c823fd7d9))
+
+
 ## 0.15.2 (2026-04-05)
 
 #### Bug Fixes
