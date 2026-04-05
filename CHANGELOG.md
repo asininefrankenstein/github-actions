@@ -1,3 +1,10 @@
+## 0.15.4 (2026-04-05)
+
+#### Bug Fixes
+
+* remove document-start markers from example templates ([e3c74f70](https://github.com/jacaudi/github-actions/commit/e3c74f7028d2ed785fa8e1f29064bd095fd749c0))
+
+
 # Changelog
 
 ## 0.15.3 (2026-04-05)
