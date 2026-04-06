@@ -94,8 +94,11 @@ on:
         description: 'Whether a new release was published (true/false)'
         value: ${{ jobs.release.outputs.new-release-published }}
       new-release-version:
-        description: 'The new version that was released (e.g., 1.2.3, no v prefix)'
+        description: 'Bare version (e.g., 1.2.3) — use for Helm chart versions'
         value: ${{ jobs.release.outputs.new-release-version }}
+      new-release-version-v:
+        description: 'v-prefixed version (e.g., v1.2.3) — use for container image tags'
+        value: ${{ jobs.release.outputs.new-release-version-v }}
       new-release-major-version:
         description: 'Major version number'
         value: ${{ jobs.release.outputs.new-release-major-version }}
@@ -123,6 +126,7 @@ jobs:
     outputs:
       new-release-published: ${{ steps.semrel.outputs.published }}
       new-release-version: ${{ steps.semrel.outputs.version }}
+      new-release-version-v: ${{ steps.semrel.outputs.version-v }}
       new-release-major-version: ${{ steps.semrel.outputs.major }}
       new-release-minor-version: ${{ steps.semrel.outputs.minor }}
       new-release-patch-version: ${{ steps.semrel.outputs.patch }}
@@ -243,6 +247,7 @@ jobs:
           if [[ -n "${VERSION}" ]]; then
             echo "published=true" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "version-v=v${VERSION}" >> $GITHUB_OUTPUT
             echo "git-tag=v${VERSION}" >> $GITHUB_OUTPUT
             echo "git-head=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
@@ -258,6 +263,7 @@ jobs:
           else
             echo "published=false" >> $GITHUB_OUTPUT
             echo "version=" >> $GITHUB_OUTPUT
+            echo "version-v=" >> $GITHUB_OUTPUT
             echo "git-tag=" >> $GITHUB_OUTPUT
             echo "git-head=" >> $GITHUB_OUTPUT
             echo "major=" >> $GITHUB_OUTPUT
