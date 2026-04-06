@@ -26,10 +26,10 @@ name: CI
   push:
     branches: [main]
 
-# Only one release at a time -- queue subsequent runs
+# Newer runs supersede older ones -- cancels pending approval gates
 concurrency:
   group: ci
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
