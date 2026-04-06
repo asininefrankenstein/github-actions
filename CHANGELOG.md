@@ -1,21 +1,5 @@
 # Changelog
 
-# [1.0.0](https://github.com/jacaudi/github-actions/compare/v0.15.5...v1.0.0) (2026-04-06)
-
-
-* feat!: replace go-semantic-release with JS semantic-release ([0925ea5](https://github.com/jacaudi/github-actions/commit/0925ea54dbcf58917624700b7927346763323e6b))
-
-
-### BREAKING CHANGES
-
-* component-semantic-release.yml now uses JS semantic-release.
-Consumers must replace .semrelrc with .releaserc.json.
-Inputs removed: allow-initial-development-versions, changelog-file, prepend,
-prerelease, create-release, config-file, validate-config, hooks.
-These are now configured in .releaserc.json.
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
-
 ## 0.15.5 (2026-04-05)
 
 #### Bug Fixes
