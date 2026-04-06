@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.0](https://github.com/jacaudi/github-actions/compare/v0.18.0...v0.19.0) (2026-04-06)
+
+### Features
+
+* use v-prefixed OCI tags for Helm chart publishing ([089fe91](https://github.com/jacaudi/github-actions/commit/089fe9138ac04d3454723ec2c7382d6afecddbd3))
+
 ## [0.18.0](https://github.com/jacaudi/github-actions/compare/v0.17.0...v0.18.0) (2026-04-06)
 
 ### Features
