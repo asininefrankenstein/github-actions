@@ -1,37 +1,15 @@
 # Changelog
 
-## [0.16.1](https://github.com/jacaudi/github-actions/compare/v0.16.0...v0.16.1) (2026-04-06)
+## [0.16.0](https://github.com/jacaudi/github-actions/compare/v0.15.5...v0.16.0) (2026-04-06)
+
+### Breaking Changes
+
+* replace go-semantic-release with JS semantic-release ([0925ea5](https://github.com/jacaudi/github-actions/commit/0925ea54dbcf58917624700b7927346763323e6b))
 
 ### Bug Fixes
 
-* use h2 heading for changelog version entries ([a88e901](https://github.com/jacaudi/github-actions/commit/a88e9015081fe51631a639d819348be32a1d8c43))
-
-# [0.16.0](https://github.com/jacaudi/github-actions/compare/v0.15.5...v0.16.0) (2026-04-06)
-
-
-* feat!: replace go-semantic-release with JS semantic-release ([0925ea5](https://github.com/jacaudi/github-actions/commit/0925ea54dbcf58917624700b7927346763323e6b))
-* feat!: test breaking change stays in 0.x.x range ([bc93821](https://github.com/jacaudi/github-actions/commit/bc9382135a2494e06f48073445e373264bd94c4b))
-
-
-### Bug Fixes
-
-* clean up changelog, remove erroneous v0.16.0 and v0.17.0 entries ([bd72847](https://github.com/jacaudi/github-actions/commit/bd728471aede3761f1c02df36650238da6bb3ac5))
 * keep breaking changes as minor bumps during 0.x.x development ([58b3581](https://github.com/jacaudi/github-actions/commit/58b3581a1c97a51502efc4555326ad4a596e0a41))
-
-
-### BREAKING CHANGES
-
-* This is a test to verify breaking changes bump minor
-instead of major during initial development.
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
-* component-semantic-release.yml now uses JS semantic-release.
-Consumers must replace .semrelrc with .releaserc.json.
-Inputs removed: allow-initial-development-versions, changelog-file, prepend,
-prerelease, create-release, config-file, validate-config, hooks.
-These are now configured in .releaserc.json.
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+* use h2 heading for changelog version entries ([a88e901](https://github.com/jacaudi/github-actions/commit/a88e9015081fe51631a639d819348be32a1d8c43))
 
 ## 0.15.5 (2026-04-05)
 
