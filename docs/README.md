@@ -151,7 +151,9 @@ jobs:
 
 ## component-semantic-release
 
-Automatic semantic versioning using [go-semantic-release](https://github.com/go-semantic-release/semantic-release). Analyzes conventional commits, creates version tags and GitHub Releases, optionally generates changelog files.
+Automatic semantic versioning using [semantic-release](https://github.com/semantic-release/semantic-release) (JS). Analyzes conventional commits, creates version tags and GitHub Releases, and generates a changelog file with proper header management (no duplicate headers).
+
+Release behavior (changelog, prerelease, branches, commit message) is configured in `.releaserc.json` in the consuming repo -- not via workflow inputs. This keeps release config version-controlled alongside the code.
 
 **Usage:**
 
@@ -165,27 +167,52 @@ jobs:
       pull-requests: write
     with:
       use-github-app: true
-      allow-initial-development-versions: true
-      changelog-file: CHANGELOG.md
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
-**Tag-only mode (no GitHub Release):**
+**Example `.releaserc.json`:**
 
-```yaml
-    with:
-      create-release: false
-      use-github-app: true
+```json
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    ["@semantic-release/changelog", {
+      "changelogFile": "CHANGELOG.md",
+      "changelogTitle": "# Changelog"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["CHANGELOG.md"],
+      "message": "release: v${nextRelease.version} [skip ci]"
+    }],
+    "@semantic-release/github"
+  ]
+}
 ```
 
-**With hooks (e.g., GoReleaser):**
+**Prerelease branches:**
+
+```json
+{
+  "branches": [
+    "main",
+    { "name": "beta", "prerelease": true }
+  ]
+}
+```
+
+**Tag-only mode (no GitHub Release):** Remove `@semantic-release/github` from the plugins list.
+
+**With extra plugins (e.g., exec hooks):**
 
 ```yaml
     with:
-      hooks: 'goreleaser'
       use-github-app: true
+      extra-plugins: '@semantic-release/changelog @semantic-release/git @semantic-release/exec'
 ```
 
 **Inputs:**
@@ -193,14 +220,9 @@ jobs:
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `dry-run` | boolean | `false` | Run without creating tags/releases |
-| `allow-initial-development-versions` | boolean | `true` | Allow versions < 1.0.0 |
-| `changelog-file` | string | `''` | Path to changelog file (empty = no file) |
-| `prepend` | boolean | `true` | Prepend to existing changelog |
-| `prerelease` | boolean | `false` | Mark release as prerelease |
-| `create-release` | boolean | `true` | Create GitHub Release (false = tag-only) |
-| `hooks` | string | `''` | Hooks: goreleaser, npm-binary-releaser, exec |
-| `config-file` | string | `''` | Path to .semrelrc config file |
-| `validate-config` | boolean | `true` | Validate .semrelrc JSON syntax |
+| `semantic-release-version` | string | `'24'` | semantic-release npm package version |
+| `extra-plugins` | string | `'@semantic-release/changelog @semantic-release/git'` | Additional plugins to install (space-separated) |
+| `node-version` | string | `'lts/*'` | Node.js version |
 | `use-github-app` | boolean | `false` | Use GitHub App authentication |
 | `runs-on` | string | `'ubuntu-latest'` | Runner label |
 
@@ -216,12 +238,12 @@ jobs:
 | Output | Description |
 |--------|-------------|
 | `new-release-published` | Whether a new release was published (true/false) |
-| `new-release-version` | The new version (e.g., v1.2.3) |
+| `new-release-version` | The new version (e.g., 1.2.3, no v prefix) |
 | `new-release-major-version` | Major version number |
 | `new-release-minor-version` | Minor version number |
 | `new-release-patch-version` | Patch version number |
 | `new-release-git-head` | Git commit SHA of the release |
-| `new-release-git-tag` | Git tag created |
+| `new-release-git-tag` | Git tag created (e.g., v1.2.3) |
 
 **Required Permissions:**
 
@@ -232,7 +254,9 @@ permissions:
   pull-requests: write
 ```
 
-**Step Summary:** Version information table, release links, token type warning.
+**Required Files:** `.releaserc.json` in the repo root.
+
+**Step Summary:** Version information table with major/minor/patch, release links, token type warning.
 
 **Block Metadata:** `pipeline-meta-semantic-release` (30-day retention)
 

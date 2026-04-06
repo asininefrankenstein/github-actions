@@ -2,7 +2,7 @@
 
 Splits the pipeline into three workflow files, each with a single responsibility. The CI workflow handles validation and versioning; the Release workflow handles artifact builds and publishing, triggered independently by the tag that CI creates.
 
-Based on [jacaudi/nextdns-operator](https://github.com/jacaudi/nextdns-operator). Uses [Uplift](https://upliftci.dev/) for semantic versioning, file bumping, and changelog generation.
+Based on [jacaudi/nextdns-operator](https://github.com/jacaudi/nextdns-operator). Uses [semantic-release](https://github.com/semantic-release/semantic-release) for semantic versioning, changelog generation, and GitHub Releases.
 
 ## End-to-End Flow
 
@@ -70,7 +70,7 @@ Based on [jacaudi/nextdns-operator](https://github.com/jacaudi/nextdns-operator)
                                    |
                                    v
                           +--------------------+
-                          |      Uplift        |
+                          |      semantic-release        |
                           |                    |
                           | 1. Bump files      |
                           |    Chart.yaml      |
@@ -122,7 +122,7 @@ Based on [jacaudi/nextdns-operator](https://github.com/jacaudi/nextdns-operator)
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `pr.yml` | Pull request opened/updated | Fast validation feedback |
-| `ci.yml` | Push to `main` | Lint, test, manual approval, uplift (bump + changelog + tag) |
+| `ci.yml` | Push to `main` | Lint, test, manual approval, semantic-release (bump + changelog + tag) |
 | `release.yml` | Tag `v*` created | Build and publish artifacts |
 
 ```
@@ -133,7 +133,7 @@ Push to main --> ci.yml (lint, test)
                           MANUAL APPROVAL
                           reviewer approves
                                 |
-                         ci.yml (uplift)
+                         ci.yml (semantic-release)
                           bumps files + changelog
                           commits + tags v1.2.3
                                 |
@@ -141,35 +141,41 @@ Push to main --> ci.yml (lint, test)
                         release.yml (container, helm)
 ```
 
-The key difference from a two-stage pipeline: CI and Release are **decoupled**. After lint and test pass, the CI workflow **pauses for manual approval**. Once a reviewer approves, uplift bumps version numbers in tracked files, generates a changelog, commits everything, and creates a tag. The tag event triggers the release workflow automatically. This requires a **GitHub App token** -- tags created by `GITHUB_TOKEN` don't trigger other workflows.
+The key difference from a two-stage pipeline: CI and Release are **decoupled**. After lint and test pass, the CI workflow **pauses for manual approval**. Once a reviewer approves, semantic-release bumps version numbers in tracked files, generates a changelog, commits everything, and creates a tag. The tag event triggers the release workflow automatically. This requires a **GitHub App token** -- tags created by `GITHUB_TOKEN` don't trigger other workflows.
 
-### Version Bumping with Uplift
+### Versioning with semantic-release
 
-Uplift calculates the next semantic version from conventional commits, then patches configured files before committing and tagging. This ensures that version references in `Chart.yaml`, `CHANGELOG.md`, and any other tracked files are always in sync with the git tag.
+semantic-release analyzes conventional commits since the last tag, determines the next version, and runs a plugin pipeline:
 
-Configuration lives in `.uplift.yml` at the repo root:
+1. **Analyze** -- `@semantic-release/commit-analyzer` determines the version bump
+2. **Release notes** -- `@semantic-release/release-notes-generator` generates rich notes with compare links and linked issues
+3. **Changelog** -- `@semantic-release/changelog` updates `CHANGELOG.md` with proper header management (no duplicate `# Changelog` headers)
+4. **Git** -- `@semantic-release/git` commits the changelog and any other assets
+5. **GitHub** -- `@semantic-release/github` creates the tag and GitHub Release
 
-```yaml
-# .uplift.yml
-bumps:
-  - file: chart/Chart.yaml
-    regex:
-      - pattern: "version: $VERSION"
-        semver: true
-        count: 1
-      - pattern: 'appVersion: "v$VERSION"'
-        semver: true
-        count: 1
+Configuration lives in `.releaserc.json` at the repo root:
+
+```json
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    ["@semantic-release/changelog", {
+      "changelogFile": "CHANGELOG.md",
+      "changelogTitle": "# Changelog"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["CHANGELOG.md"],
+      "message": "release: v${nextRelease.version} [skip ci]"
+    }],
+    "@semantic-release/github"
+  ]
+}
 ```
 
-`$VERSION` is a built-in token that matches a semantic version with an optional `v` prefix. With `semver: true`, the replacement is bare semver (no `v`). The literal `v` before `$VERSION` in the `appVersion` pattern is preserved, so `appVersion: "v0.1.0"` becomes `appVersion: "v0.2.0"`.
-
-The `count: 1` ensures only the first match in each pattern is replaced (important when a file has multiple version-like strings).
-
-Uplift's release process runs three stages in order:
-1. **Bump** -- patch all configured files with the next version
-2. **Changelog** -- generate/update `CHANGELOG.md`
-3. **Tag** -- commit all changes and create a `v`-prefixed git tag
+The `changelogTitle` option ensures the `# Changelog` header is preserved at the top of the file on every release -- no duplicate headers, no manual cleanup needed.
 
 ---
 
@@ -735,7 +741,7 @@ Runs on push to `main`. Validates the code, waits for manual approval, then bump
                           |
                           v
                +---------------------+
-               |      Uplift         |
+               |      semantic-release         |
                |  bump Chart.yaml    |
                |  update CHANGELOG   |
                |  commit + tag       |
@@ -787,7 +793,7 @@ approve:
   environment: release
   steps:
     - name: Release approved
-      run: echo "Release approved, proceeding with uplift..."
+      run: echo "Release approved, proceeding with semantic-release..."
 ```
 
 ##### Setting Up the Environment
@@ -797,70 +803,38 @@ approve:
 3. Enable **Required reviewers** and add the approvers
 4. Optionally set a **Wait timer** (e.g., 5 minutes) for a cooldown period before approval is possible
 
-#### Uplift Release
+#### Semantic Release
 
-Runs after approval. Analyzes conventional commits since the last tag, bumps version numbers in configured files, generates a changelog, commits everything, and creates a git tag.
+Runs after approval. Calls the `component-semantic-release.yml` reusable workflow which runs `npx semantic-release` to analyze conventional commits, create a tag + GitHub Release, update the changelog, and commit it back.
 
 ```yaml
 release:
-  name: Uplift Release
   needs: [approve]
-  runs-on: ubuntu-latest
+  uses: jacaudi/github-actions/.github/workflows/component-semantic-release.yml@main
   permissions:
     contents: write
-  steps:
-    - name: Generate GitHub App Token
-      id: app-token
-      uses: actions/create-github-app-token@v2
-      with:
-        app-id: ${{ secrets.APP_ID }}
-        private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-    - name: Checkout
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        fetch-tags: true
-        token: ${{ steps.app-token.outputs.token }}
-
-    - name: Configure git for app token
-      run: |
-        git remote set-url origin \
-          "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git"
-
-    - name: Validate git history
-      run: |
-        COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
-        TAG_COUNT=$(git tag -l 'v*' | wc -l | tr -d ' ')
-        echo "Commits: ${COMMIT_COUNT}, Tags: ${TAG_COUNT}"
-        echo "Recent commits:"
-        git log --oneline -10 || true
-        echo "Latest tags:"
-        git tag -l 'v*' --sort=-v:refname | head -5 || true
-
-    - name: Run Uplift
-      uses: gembaadvantage/uplift-action@v2
-      with:
-        args: release
-      env:
-        GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+    issues: write
+    pull-requests: write
+  with:
+    use-github-app: true
+  secrets:
+    app-id: ${{ secrets.APP_ID }}
+    app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 
-Uplift does everything in a single `release` command:
+semantic-release runs a plugin pipeline configured in `.releaserc.json`:
 
-1. **Bump** -- patches `chart/Chart.yaml` fields per `.uplift.yml`:
-   - `version: 0.1.0` becomes `version: 0.2.0` (bare semver)
-   - `appVersion: "v0.1.0"` becomes `appVersion: "v0.2.0"` (v-prefixed)
-2. **Changelog** -- generates/updates `CHANGELOG.md` with commits since the last tag
-3. **Tag** -- stages all changes, commits, creates `v0.2.0` tag, and pushes
+1. **Analyze** -- determines version bump from conventional commits
+2. **Release notes** -- generates rich notes with compare links and linked issues/PRs
+3. **Changelog** -- updates `CHANGELOG.md` (proper header management, no duplicates)
+4. **Git** -- commits the changelog with `[skip ci]`
+5. **GitHub** -- creates the tag and GitHub Release
 
 Key details:
 - `fetch-depth: 0` + `fetch-tags: true` ensures full history for accurate version calculation
-- The checkout uses the app token so uplift's push (commit + tag) triggers `release.yml`
-- The remote URL is reconfigured with the app token for the push
-- Uplift handles staging, committing, and pushing automatically -- no manual `git add`/`commit`/`push` steps
-- No separate changelog commit step -- uplift includes the changelog in the same commit as the version bumps
-- If no qualifying conventional commits exist since the last tag, uplift exits cleanly with no changes
+- The GitHub App token is used so the tag triggers `release.yml`
+- Changelog, prerelease, and branch config live in `.releaserc.json` -- not workflow inputs
+- If no qualifying conventional commits exist since the last tag, semantic-release exits cleanly
 
 This workflow's only job beyond validation is to produce a version tag. It does **not** build or publish artifacts.
 
@@ -868,7 +842,7 @@ This workflow's only job beyond validation is to produce a version tag. It does 
 
 ## Release (`release.yml`)
 
-Triggered automatically by a `v*` tag. Because the manual approval already happened in ci.yml before uplift created the tag, this workflow runs without any gate. Uplift already bumped `chart/Chart.yaml` before tagging, so the checked-out code has the correct version values baked in.
+Triggered automatically by a `v*` tag. Because the manual approval already happened in ci.yml before semantic-release created the tag, this workflow runs without any gate.
 
 ```
 +-----------------------------------------------------+
@@ -1111,7 +1085,7 @@ Key details:
 
 #### Helm Publish
 
-Packages the Helm chart and pushes it to an OCI registry on GHCR. Because uplift already bumped `version` and `appVersion` in `chart/Chart.yaml`, the chart is published with the correct version without any runtime patching.
+Packages the Helm chart and pushes it to an OCI registry on GHCR. The chart version is derived from the git tag (`github.ref_name`).
 
 ```yaml
 helm:
@@ -1141,7 +1115,7 @@ helm:
         VERSION="${GITHUB_REF_NAME#v}"
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-        # Verify Chart.yaml matches the tag (uplift should have bumped it)
+        # Verify Chart.yaml version matches the tag
         CHART_VERSION=$(grep '^version:' "${CHART_PATH}/Chart.yaml" | awk '{print $2}')
         if [[ "${CHART_VERSION}" != "${VERSION}" ]]; then
           echo "::warning::Chart.yaml version (${CHART_VERSION}) does not match tag (${VERSION})"
@@ -1241,7 +1215,6 @@ Helm publish settings are configurable via repository variables, with sensible d
 | `HELM_CHART_REPOSITORY` | `<owner>/charts` | OCI repository path under the registry |
 
 Key details:
-- `chart/Chart.yaml` already has the correct `version` and `appVersion` from uplift's bump stage
 - The extract step verifies the Chart.yaml version matches the tag as a safety check
 - Helm versions use bare semver (`1.2.3`), not the `v`-prefixed tag (`v1.2.3`)
 - `app-version` keeps the `v` prefix to match the container image tag
@@ -1324,54 +1297,21 @@ Each job emits a `pipeline-meta-<block>` artifact containing a `meta.json` with 
 
 ---
 
-## What Uplift Changes at Release Time
+## What semantic-release Changes at Release Time
 
-When uplift runs, it modifies these files in a single commit before tagging:
+When semantic-release runs, it:
 
-| File | Field | Before | After |
-|------|-------|--------|-------|
-| `chart/Chart.yaml` | `version` | `0.1.0` | `0.2.0` |
-| `chart/Chart.yaml` | `appVersion` | `"v0.1.0"` | `"v0.2.0"` |
-| `CHANGELOG.md` | (prepended) | -- | New release entry with commit list |
+1. Creates a git tag (e.g., `v0.2.0`) and a GitHub Release with rich release notes
+2. Updates `CHANGELOG.md` with the new release entry (proper header management)
+3. Commits the changelog back to the repo with `[skip ci]`
 
-The release workflow then checks out the tagged commit, which already contains these updated values. No runtime version patching is needed in the release jobs.
+| File | Change |
+|------|--------|
+| `CHANGELOG.md` | New release section prepended (below `# Changelog` header) |
+| Git tag | `v0.2.0` created |
+| GitHub Release | Created with compare links, linked issues/PRs |
 
-### Adding More Files
-
-To bump versions in additional files, add entries to `.uplift.yml`:
-
-```yaml
-bumps:
-  # Helm chart
-  - file: chart/Chart.yaml
-    regex:
-      - pattern: "version: $VERSION"
-        semver: true
-        count: 1
-      - pattern: 'appVersion: "v$VERSION"'
-        semver: true
-        count: 1
-
-  # Version constant in Go source
-  - file: internal/version/version.go
-    regex:
-      - pattern: 'Version = "$VERSION"'
-        semver: true
-        count: 1
-
-  # Multiple similar files via glob
-  - file: "deploy/*/kustomization.yaml"
-    regex:
-      - pattern: "newTag: v$VERSION"
-        semver: true
-        count: 1
-
-  # JSON files
-  - file: package.json
-    json:
-      - path: "version"
-        semver: true
-```
+The release workflow triggers on the tag and uses `github.ref_name` for the version. The Helm chart version is passed via the tag -- no file bumping needed.
 
 ---
 
@@ -1380,7 +1320,8 @@ bumps:
 | Scope | PR | CI | Release | Why |
 |-------|:--:|:--:|:-------:|-----|
 | `contents: read` | x | | x | Checkout code |
-| `contents: write` | | x | | Uplift commit + tag push |
+| `contents: write` | | x | | semantic-release tag + changelog commit |
+| `issues: write` | | x | | semantic-release comments on issues |
 | `packages: write` | | | x | Push container images and Helm charts |
 | `pull-requests: write` | x | | | PR status comments |
 
@@ -1399,9 +1340,9 @@ bumps:
 
 | File | Purpose |
 |------|---------|
-| `.uplift.yml` | Configures which files to bump and how (regex/JSON patterns) |
-| `CHANGELOG.md` | Generated/updated by uplift with each release |
-| `chart/Chart.yaml` | Helm chart metadata -- `version` and `appVersion` bumped by uplift |
+| `.releaserc.json` | semantic-release config (plugins, changelog, branches) |
+| `CHANGELOG.md` | Generated/updated by semantic-release with each release |
+| `chart/Chart.yaml` | Helm chart metadata (version derived from tag) |
 
 ---
 
@@ -1411,8 +1352,9 @@ bumps:
 |---------------|---------|---------|
 | `actions/checkout@v6` | All | Clone the repository |
 | `actions/setup-go@v6` | PR, CI | Install Go toolchain |
-| `actions/create-github-app-token@v2` | CI | Generate app token for uplift push |
-| `gembaadvantage/uplift-action@v2` | CI | Bump files, changelog, tag, and push |
+| `actions/create-github-app-token@v2` | CI | Generate app token for semantic-release |
+| `actions/setup-node@v6` | CI | Install Node.js for semantic-release |
+| `semantic-release` (npx) | CI | Analyze commits, tag, GitHub Release, changelog |
 | `golangci/golangci-lint-action@v9` | PR, CI | Run golangci-lint |
 | `azure/setup-helm@v4` | PR, CI | Install Helm CLI |
 | `go-task/setup-task@v1` | PR | Install Task runner (CRD sync) |
