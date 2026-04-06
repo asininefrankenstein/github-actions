@@ -139,6 +139,13 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+          # OCI tag is v-prefixed
+          if [[ "${VERSION}" == v* ]]; then
+            echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          fi
+
           # Verify Chart.yaml matches when triggered by tag
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             CHART_VERSION=$(grep '^version:' "${{ inputs.chart-path }}/Chart.yaml" | awk '{print $2}')
@@ -175,7 +182,7 @@ jobs:
         with:
           name: ${{ steps.chart-name.outputs.name }}
           repository: ${{ steps.repository.outputs.owner }}
-          tag: ${{ steps.version.outputs.version }}
+          tag: ${{ steps.version.outputs.tag }}
           app_version: ${{ steps.app-version.outputs.app-version }}
           path: ${{ inputs.chart-path }}
           registry: ${{ inputs.registry }}
@@ -188,7 +195,7 @@ jobs:
           echo "name=${{ steps.chart-name.outputs.name }}" >> $GITHUB_OUTPUT
           echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
           echo "app-version=${{ steps.app-version.outputs.app-version }}" >> $GITHUB_OUTPUT
-          echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ steps.chart-name.outputs.name }}:${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "ref=oci://${{ inputs.registry }}/${{ steps.repository.outputs.owner }}/${{ steps.chart-name.outputs.name }}:${{ steps.version.outputs.tag }}" >> $GITHUB_OUTPUT
 
       - name: Generate Summary
         if: always()
@@ -196,6 +203,7 @@ jobs:
           CHART_NAME="${{ steps.chart-name.outputs.name }}"
           CHART_REPO="${{ steps.repository.outputs.owner }}"
           VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
           APP_VERSION="${{ steps.app-version.outputs.app-version }}"
 
           echo "## Helm Chart Publishing Results" >> $GITHUB_STEP_SUMMARY
@@ -214,24 +222,23 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Chart Name | \`${CHART_NAME}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| OCI Tag | \`${TAG}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| App Version | \`${APP_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Chart Path | \`${{ inputs.chart-path }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Registry | \`${{ inputs.registry }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Repository | \`${CHART_REPO}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Lint | ${{ inputs.lint }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Update Dependencies | ${{ inputs.update-dependencies }} |" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Usage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Pull the chart:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "helm pull oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "helm pull oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${TAG}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Install the chart:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "helm install my-release oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "helm install my-release oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME} --version ${TAG}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Write block metadata
@@ -242,7 +249,8 @@ jobs:
           CHART_NAME="${{ steps.chart-name.outputs.name }}"
           CHART_REPO="${{ steps.repository.outputs.owner }}"
           VERSION="${{ steps.version.outputs.version }}"
-          CHART_REF="oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME}:${VERSION}"
+          TAG="${{ steps.version.outputs.tag }}"
+          CHART_REF="oci://${{ inputs.registry }}/${CHART_REPO}/${CHART_NAME}:${TAG}"
           jq -n \
             --arg block         "helm-publish" \
             --arg status        "${STATUS}" \
