@@ -1,5 +1,18 @@
 # Changelog
 
+# [0.17.0](https://github.com/jacaudi/github-actions/compare/v0.16.0...v0.17.0) (2026-04-06)
+
+
+* feat!: test breaking change stays in 0.x.x range ([bc93821](https://github.com/jacaudi/github-actions/commit/bc9382135a2494e06f48073445e373264bd94c4b))
+
+
+### BREAKING CHANGES
+
+* This is a test to verify breaking changes bump minor
+instead of major during initial development.
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+
 # [0.16.0](https://github.com/jacaudi/github-actions/compare/v0.15.5...v0.16.0) (2026-04-06)
 
 
