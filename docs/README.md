@@ -238,7 +238,8 @@ jobs:
 | Output | Description |
 |--------|-------------|
 | `new-release-published` | Whether a new release was published (true/false) |
-| `new-release-version` | The new version (e.g., 1.2.3, no v prefix) |
+| `new-release-version` | Bare version (e.g., 1.2.3) -- use for Helm chart versions |
+| `new-release-version-v` | v-prefixed version (e.g., v1.2.3) -- use for container/OCI tags |
 | `new-release-major-version` | Major version number |
 | `new-release-minor-version` | Minor version number |
 | `new-release-patch-version` | Patch version number |
@@ -398,8 +399,8 @@ permissions:
 **Installing published charts:**
 
 ```bash
-helm pull oci://ghcr.io/<owner>/charts/<chart-name> --version 1.0.0
-helm install my-release oci://ghcr.io/<owner>/charts/<chart-name> --version 1.0.0
+helm pull oci://ghcr.io/<owner>/charts/<chart-name> --version v1.0.0
+helm install my-release oci://ghcr.io/<owner>/charts/<chart-name> --version v1.0.0
 ```
 
 **Step Summary:** Chart details table, pull/install commands.

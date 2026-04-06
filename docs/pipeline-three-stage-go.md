@@ -1216,7 +1216,7 @@ Helm publish settings are configurable via repository variables, with sensible d
 
 Key details:
 - The extract step verifies the Chart.yaml version matches the tag as a safety check
-- Helm versions use bare semver (`1.2.3`), not the `v`-prefixed tag (`v1.2.3`)
+- Chart version uses bare semver (`1.2.3`) per Helm spec, but OCI tags are v-prefixed (`v1.2.3`)
 - `app-version` keeps the `v` prefix to match the container image tag
 - Defaults to `oci://ghcr.io/<owner>/charts/<repo-name>` with no configuration needed
 
