@@ -320,7 +320,7 @@ jobs:
       # Helm Linting
       - name: Set up Helm
         if: matrix.linter == 'helm'
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: 'latest'
 
