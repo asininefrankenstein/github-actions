@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/jacaudi/github-actions/compare/v0.16.0...v0.16.1) (2026-04-06)
+
+### Bug Fixes
+
+* conform v0.16.0 changelog entry to h2 format and clean up noise ([298fe97](https://github.com/jacaudi/github-actions/commit/298fe9714edc5538853107d96ee352d8a0f69046))
+* use h2 heading for changelog version entries ([a88e901](https://github.com/jacaudi/github-actions/commit/a88e9015081fe51631a639d819348be32a1d8c43))
+
 ## [0.16.0](https://github.com/jacaudi/github-actions/compare/v0.15.5...v0.16.0) (2026-04-06)
 
 ### Breaking Changes
