@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.17.0](https://github.com/jacaudi/github-actions/compare/v0.16.2...v0.17.0) (2026-04-06)
+
+### Features
+
+* add optional Go and GoReleaser setup to semantic-release component ([57a66c5](https://github.com/jacaudi/github-actions/commit/57a66c5828484847e0146f82e45d53e6cc68736c)), closes [#81](https://github.com/jacaudi/github-actions/issues/81)
+
 ## [0.16.2](https://github.com/jacaudi/github-actions/compare/v0.16.1...v0.16.2) (2026-04-06)
 
 ### Bug Fixes
