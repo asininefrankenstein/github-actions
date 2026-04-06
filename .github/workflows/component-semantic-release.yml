@@ -52,6 +52,26 @@ on:
         required: false
         type: string
         default: 'lts/*'
+      go:
+        description: 'Install Go toolchain (for GoReleaser or other Go-based release hooks)'
+        required: false
+        type: boolean
+        default: false
+      go-version:
+        description: 'Go version to install (only used if go is true)'
+        required: false
+        type: string
+        default: 'stable'
+      goreleaser:
+        description: 'Install GoReleaser (for building Go binaries during release)'
+        required: false
+        type: boolean
+        default: false
+      goreleaser-version:
+        description: 'GoReleaser version to install (only used if goreleaser is true)'
+        required: false
+        type: string
+        default: 'latest'
       use-github-app:
         description: 'Use GitHub App authentication (enables downstream workflow triggers)'
         required: false
@@ -170,6 +190,19 @@ jobs:
               break
             fi
           done
+
+      - name: Set up Go
+        if: ${{ inputs.go }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Set up GoReleaser
+        if: ${{ inputs.goreleaser }}
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          install-only: true
+          version: ${{ inputs.goreleaser-version }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
