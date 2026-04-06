@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.2](https://github.com/jacaudi/github-actions/compare/v0.16.1...v0.16.2) (2026-04-06)
+
+### Bug Fixes
+
+* newer CI runs cancel older pending runs ([cb862af](https://github.com/jacaudi/github-actions/commit/cb862af63b9549ecc940e5e031000ab7368ef518))
+
 ## [0.16.1](https://github.com/jacaudi/github-actions/compare/v0.16.0...v0.16.1) (2026-04-06)
 
 ### Bug Fixes
