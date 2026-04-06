@@ -6,7 +6,7 @@ name: CI/CD
 # 2. Release - Auto-version, tag, and release based on Conventional Commits (main branch only)
 #
 # This workflow "dogfoods" the reusable workflows in this repository
-# Uses go-semantic-release for automatic versioning with Conventional Commits
+# Uses semantic-release (JS) for automatic versioning with Conventional Commits
 
 on:
   push:
@@ -45,8 +45,6 @@ jobs:
     uses: ./.github/workflows/component-semantic-release.yml
     with:
       use-github-app: true
-      allow-initial-development-versions: true
-      changelog-file: CHANGELOG.md
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}

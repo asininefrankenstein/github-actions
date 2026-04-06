@@ -23,7 +23,7 @@ See [docs/examples.md](docs/examples.md) for complete pipeline templates.
 |-----------|-------------|
 | `component-lint.yml` | Multi-language linting (Python, Go, Shell, YAML, Helm, JSON) |
 | `component-test.yml` | Test runner with coverage (Go, Python, Node.js, Bun) |
-| `component-semantic-release.yml` | Semantic versioning, tags, and GitHub Releases via [go-semantic-release](https://github.com/go-semantic-release/semantic-release) |
+| `component-semantic-release.yml` | Semantic versioning, tags, and GitHub Releases via [semantic-release](https://github.com/semantic-release/semantic-release) |
 | `component-container-build.yml` | Multi-arch container builds with native runners |
 | `component-helm-publish.yml` | Helm chart publishing to OCI registries |
 | `component-pipeline-summary.yml` | Collects block metadata into a single pipeline artifact |
@@ -35,7 +35,7 @@ The recommended pipeline pattern for Go projects with containers and Helm charts
 ```
 PR -----> lint, test, verify, container build (no push)
 
-main ---> lint, test, approve, semantic-release (tag + GitHub Release)
+main ---> lint, test, approve, semantic-release (tag + GitHub Release + changelog)
                                     |
                                tag v1.2.3
                                     |

@@ -7,14 +7,14 @@ Copy and adapt these templates for your own projects. See [pipeline-three-stage-
 | Template | Trigger | Description |
 |----------|---------|-------------|
 | [example-three-stage-pr.yml](example-three-stage-pr.yml) | Pull request | Lint, test, Helm verification, container build (no push) |
-| [example-three-stage-ci.yml](example-three-stage-ci.yml) | Push to `main` | Lint, test, manual approval, uplift (bump + changelog + tag) |
+| [example-three-stage-ci.yml](example-three-stage-ci.yml) | Push to `main` | Lint, test, manual approval, semantic-release (tag + release + changelog) |
 | [example-three-stage-release.yml](example-three-stage-release.yml) | Tag `v*` | Multi-arch container build + push, Helm publish, pipeline summary |
 
 ## Key Concepts
 
 ### Conventional Commits
 
-Uplift uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic versioning.
+semantic-release uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic versioning.
 
 | Commit Type | 0.x.x Bump | >=1.0.0 Bump | Example |
 |-------------|-----------|-------------|---------|
@@ -25,7 +25,7 @@ Uplift uses [Conventional Commits](https://www.conventionalcommits.org/) for aut
 
 ### GitHub App Token
 
-Tags created by `GITHUB_TOKEN` don't trigger other workflows. The CI workflow uses a GitHub App token so the tag uplift creates triggers the release workflow:
+Tags created by `GITHUB_TOKEN` don't trigger other workflows. The CI workflow uses a GitHub App token so the tag semantic-release creates triggers the release workflow:
 
 ```yaml
 release:
@@ -62,6 +62,6 @@ Set these in **Settings > Secrets and variables > Actions > Variables**:
 
 | File | Purpose |
 |------|---------|
-| `.uplift.yml` | Configures which files to bump and how |
-| `CHANGELOG.md` | Generated/updated by uplift |
-| `chart/Chart.yaml` | Helm chart metadata bumped by uplift |
+| `.releaserc.json` | semantic-release config (plugins, changelog, branches) |
+| `CHANGELOG.md` | Generated/updated by semantic-release |
+| `chart/Chart.yaml` | Helm chart metadata (version managed by tag) |

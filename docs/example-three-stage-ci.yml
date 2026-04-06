@@ -1,7 +1,7 @@
 # Three-Stage Go Pipeline: CI
 # See docs/pipeline-three-stage-go.md for the full design spec.
 #
-# Runs on push to main: lint, test, manual approval, then semantic release
+# Runs on push to main: lint, test, manual approval, then semantic-release (JS)
 # (tag, GitHub Release, changelog). The tag triggers release.yml.
 #
 # Required secrets:
@@ -18,8 +18,8 @@
 # Required environment:
 #   "release" with required reviewers (Settings > Environments)
 #
-# Optional files:
-#   .semrelrc - go-semantic-release config (JSON, uses defaults if absent)
+# Required files:
+#   .releaserc.json - semantic-release config (changelog, git commit, plugins)
 name: CI
 
 "on":
@@ -77,8 +77,9 @@ jobs:
 
   # ── Semantic Release (via reusable workflow) ─────────────────────────────────
   # Runs after approval. Calculates next semver from conventional commits,
-  # creates a git tag + GitHub Release, and optionally commits a changelog.
+  # creates a git tag + GitHub Release, and commits the changelog.
   # The tag triggers release.yml.
+  # Changelog, prerelease, and branch config are in .releaserc.json.
   release:
     needs: [approve]
     uses: jacaudi/github-actions/.github/workflows/component-semantic-release.yml@main
@@ -88,8 +89,6 @@ jobs:
       pull-requests: write
     with:
       use-github-app: true
-      allow-initial-development-versions: true
-      changelog-file: CHANGELOG.md
     secrets:
       app-id: ${{ secrets.APP_ID }}
       app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
