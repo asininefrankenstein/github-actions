@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.0](https://github.com/jacaudi/github-actions/compare/v0.17.0...v0.18.0) (2026-04-06)
+
+### Features
+
+* add v-prefixed version output to semantic-release component ([5142a89](https://github.com/jacaudi/github-actions/commit/5142a8969bddef7b7933835010aa9911fd0612ad)), closes [#82](https://github.com/jacaudi/github-actions/issues/82)
+
 ## [0.17.0](https://github.com/jacaudi/github-actions/compare/v0.16.2...v0.17.0) (2026-04-06)
 
 ### Features
