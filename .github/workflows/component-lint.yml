@@ -221,6 +221,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Run Setup Commands
+        if: inputs.setup-command != ''
+        working-directory: .
+        run: |
+          echo "Running setup commands..."
+          ${{ inputs.setup-command }}
+
       - name: Create results directory
         run: mkdir -p .lint-results
 
