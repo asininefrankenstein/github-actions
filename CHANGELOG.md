@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.0](https://github.com/jacaudi/github-actions/compare/v0.19.0...v0.20.0) (2026-04-07)
+
+### Features
+
+* **lint:** add setup-command input to lint workflow ([#83](https://github.com/jacaudi/github-actions/issues/83)) ([7d8d918](https://github.com/jacaudi/github-actions/commit/7d8d9187e85d83ebe419c7c7ee7bd637b78b31a3)), closes [#65](https://github.com/jacaudi/github-actions/issues/65)
+
 ## [0.19.0](https://github.com/jacaudi/github-actions/compare/v0.18.0...v0.19.0) (2026-04-06)
 
 ### Features
