@@ -221,6 +221,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Run setup commands (from repo root, not working-directory)
       - name: Run Setup Commands
         if: inputs.setup-command != ''
         working-directory: .

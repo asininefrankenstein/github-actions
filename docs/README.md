@@ -33,6 +33,18 @@ jobs:
       helm-chart-path: 'chart'
 ```
 
+**With setup command (e.g., for go:embed):**
+
+```yaml
+jobs:
+  lint:
+    uses: jacaudi/github-actions/.github/workflows/component-lint.yml@main
+    with:
+      go: true
+      working-directory: server
+      setup-command: cp -r app server/app
+```
+
 **Inputs:**
 
 | Input | Type | Default | Description |
@@ -58,6 +70,7 @@ jobs:
 | `json-paths` | string | `'.'` | Paths to check for JSON files |
 | `json-exclude` | string | `'node_modules .git'` | Patterns to exclude |
 | `working-directory` | string | `'.'` | Working directory for all commands |
+| `setup-command` | string | `''` | Commands to run before linting (from repo root, not working-directory) |
 | `fail-fast` | boolean | `true` | Stop on first linter failure |
 | `upload-artifact` | boolean | `true` | Upload lint results as artifact |
 | `artifact-name` | string | `'lint-results'` | Name for lint result artifacts |
