@@ -114,6 +114,11 @@ on:
         required: false
         type: string
         default: '.'
+      setup-command:
+        description: 'Command(s) to run after checkout but before linting (runs from repo root, not working-directory)'
+        required: false
+        type: string
+        default: ''
       fail-fast:
         description: 'Stop on first linter failure'
         required: false
