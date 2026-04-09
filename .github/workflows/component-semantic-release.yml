@@ -154,6 +154,34 @@ jobs:
             echo "token-type=github" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve git identity
+        id: git-identity
+        run: |
+          if [[ "${{ steps.token.outputs.token-type }}" == "app" ]]; then
+            APP_SLUG=$(gh api /app --jq '.slug' || echo "")
+            if [[ -n "${APP_SLUG}" ]]; then
+              APP_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq '.id' || echo "")
+              if [[ -n "${APP_ID}" ]]; then
+                echo "name=${APP_SLUG}[bot]" >> $GITHUB_OUTPUT
+                echo "email=${APP_ID}+${APP_SLUG}[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
+                echo "Resolved git identity: ${APP_SLUG}[bot] (${APP_ID})"
+              else
+                echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
+                echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
+                echo "Could not resolve app user ID, falling back to github-actions[bot]"
+              fi
+            else
+              echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
+              echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
+              echo "Could not resolve app slug, falling back to github-actions[bot]"
+            fi
+          else
+            echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
+            echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -223,10 +251,10 @@ jobs:
         id: semrel
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
-          GIT_AUTHOR_NAME: github-actions[bot]
-          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: github-actions[bot]
-          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_AUTHOR_NAME: ${{ steps.git-identity.outputs.name }}
+          GIT_AUTHOR_EMAIL: ${{ steps.git-identity.outputs.email }}
+          GIT_COMMITTER_NAME: ${{ steps.git-identity.outputs.name }}
+          GIT_COMMITTER_EMAIL: ${{ steps.git-identity.outputs.email }}
         run: |
           set -o pipefail
           DRY_RUN_FLAG=""
