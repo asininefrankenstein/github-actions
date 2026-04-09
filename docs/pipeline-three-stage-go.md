@@ -160,8 +160,23 @@ Configuration lives in `.releaserc.json` at the repo root:
   "branches": ["main"],
   "tagFormat": "v${version}",
   "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    ["@semantic-release/commit-analyzer", {
+      "releaseRules": [
+        { "breaking": true, "release": "minor" },
+        { "type": "refactor", "release": "patch" },
+        { "type": "chore", "scope": "deps", "release": "patch" }
+      ]
+    }],
+    ["@semantic-release/release-notes-generator", {
+      "presetConfig": {
+        "types": [
+          { "type": "feat", "section": "Features" },
+          { "type": "fix", "section": "Bug Fixes" },
+          { "type": "refactor", "section": "Code Refactoring" },
+          { "type": "chore", "scope": "deps", "section": "Dependencies" }
+        ]
+      }
+    }],
     ["@semantic-release/changelog", {
       "changelogFile": "CHANGELOG.md",
       "changelogTitle": "# Changelog"
@@ -1372,9 +1387,13 @@ The release workflow triggers on the tag and uses `github.ref_name` for the vers
 
 Version bumps are determined by commit prefixes:
 
-| Commit | 0.x.x Bump | >=1.0.0 Bump |
-|--------|-----------|-------------|
-| `fix: ...` | Patch (0.0.X) | Patch (x.y.Z) |
-| `feat: ...` | Minor (0.X.0) | Minor (x.Y.0) |
-| `feat!: ...` | Minor (0.X.0) | **Major (X.0.0)** |
-| `chore:`, `docs:`, etc. | No release | No release |
+| Commit | 0.x.x Bump | >=1.0.0 Bump | Changelog Section |
+|--------|-----------|-------------|-------------------|
+| `fix: ...` | Patch (0.0.X) | Patch (x.y.Z) | Bug Fixes |
+| `feat: ...` | Minor (0.X.0) | Minor (x.Y.0) | Features |
+| `feat!: ...` | Minor (0.X.0) | **Major (X.0.0)** | Features |
+| `refactor: ...` | Patch (0.0.X) | Patch (x.y.Z) | Code Refactoring |
+| `chore(deps): ...` | Patch (0.0.X) | Patch (x.y.Z) | Dependencies |
+| `fix(deps): ...` | Patch (0.0.X) | Patch (x.y.Z) | Bug Fixes |
+| `chore:` (no deps scope) | No release | No release | -- |
+| `docs:`, `ci:`, `test:` | No release | No release | -- |
