@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.1](https://github.com/jacaudi/github-actions/compare/v0.20.0...v0.20.1) (2026-04-09)
+
+### Bug Fixes
+
+* **semantic-release:** resolve git identity from GitHub App token ([#85](https://github.com/jacaudi/github-actions/issues/85)) ([3a8b955](https://github.com/jacaudi/github-actions/commit/3a8b955dcbd5c1da75c60af43e7aca7f47bd505c)), closes [#84](https://github.com/jacaudi/github-actions/issues/84)
+
 ## [0.20.0](https://github.com/jacaudi/github-actions/compare/v0.19.0...v0.20.0) (2026-04-07)
 
 ### Features
