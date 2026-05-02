@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.3](https://github.com/jacaudi/github-actions/compare/v0.20.2...v0.20.3) (2026-05-02)
+
+### Bug Fixes
+
+* **container-build:** use _ between slug and arch in digest artifact name ([#92](https://github.com/jacaudi/github-actions/issues/92)) ([07ec8d6](https://github.com/jacaudi/github-actions/commit/07ec8d61dc07a13b1346e415357886361ae8024f)), closes [#90](https://github.com/jacaudi/github-actions/issues/90) [jacaudi/dras#100](https://github.com/jacaudi/dras/issues/100)
+
 ## [0.20.2](https://github.com/jacaudi/github-actions/compare/v0.20.1...v0.20.2) (2026-05-02)
 
 ### Bug Fixes
