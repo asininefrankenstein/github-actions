@@ -247,7 +247,14 @@ jobs:
         if: inputs.push
         uses: actions/upload-artifact@v7
         with:
-          name: digest-${{ steps.image-slug.outputs.value }}-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          # Use `_` (not `-`) between the slug and the arch token so the
+          # merge job's glob pattern (`digest-<slug>_*`) only matches THIS
+          # image's pair. Using `-` here would let `dras` match `dras-renderer`
+          # (one slug being a prefix of another) and merge-multiple would
+          # silently overwrite the digest files. Underscore is safe because
+          # `/` in image names is already rewritten to `-` in the slug, and
+          # `_` is not a valid character in OCI image names.
+          name: digest-${{ steps.image-slug.outputs.value }}_${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -288,7 +295,9 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
-          pattern: digest-${{ steps.image-slug.outputs.value }}-*
+          # `_` separator (see Upload digest comment) prevents prefix-glob
+          # collisions when one image's slug is a prefix of another's.
+          pattern: digest-${{ steps.image-slug.outputs.value }}_*
           merge-multiple: true
 
       - name: Set up Docker Buildx
