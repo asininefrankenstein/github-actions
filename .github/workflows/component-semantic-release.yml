@@ -156,31 +156,36 @@ jobs:
 
       - name: Resolve git identity
         id: git-identity
+        # Use the outputs that actions/create-github-app-token@v2 already
+        # exposes (`app-slug` and `installation-id`). The earlier approach
+        # of querying `gh api /users/<slug>[bot]` for the bot user-id often
+        # fails because an app installation token doesn't carry the
+        # `read:user` scope that the /users endpoint requires for some bot
+        # accounts — even though the token itself is valid (commits push,
+        # tags get created, downstream workflows fire). The fallback then
+        # silently authored release commits as `github-actions[bot]` even
+        # when the underlying token was the app's.
+        #
+        # `installation-id+app-slug[bot]@users.noreply.github.com` is the
+        # canonical noreply email format for app commits (per GitHub's own
+        # docs) and requires no extra API lookup.
         run: |
           if [[ "${{ steps.token.outputs.token-type }}" == "app" ]]; then
-            APP_SLUG=$(gh api /app --jq '.slug' || echo "")
-            if [[ -n "${APP_SLUG}" ]]; then
-              APP_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq '.id' || echo "")
-              if [[ -n "${APP_ID}" ]]; then
-                echo "name=${APP_SLUG}[bot]" >> $GITHUB_OUTPUT
-                echo "email=${APP_ID}+${APP_SLUG}[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
-                echo "Resolved git identity: ${APP_SLUG}[bot] (${APP_ID})"
-              else
-                echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
-                echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
-                echo "Could not resolve app user ID, falling back to github-actions[bot]"
-              fi
+            APP_SLUG="${{ steps.app-token.outputs.app-slug }}"
+            INSTALLATION_ID="${{ steps.app-token.outputs.installation-id }}"
+            if [[ -n "${APP_SLUG}" && -n "${INSTALLATION_ID}" ]]; then
+              echo "name=${APP_SLUG}[bot]" >> $GITHUB_OUTPUT
+              echo "email=${INSTALLATION_ID}+${APP_SLUG}[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
+              echo "Resolved git identity: ${APP_SLUG}[bot] (installation ${INSTALLATION_ID})"
             else
               echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
               echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
-              echo "Could not resolve app slug, falling back to github-actions[bot]"
+              echo "Could not resolve app-slug or installation-id outputs from create-github-app-token; falling back to github-actions[bot]"
             fi
           else
             echo "name=github-actions[bot]" >> $GITHUB_OUTPUT
             echo "email=github-actions[bot]@users.noreply.github.com" >> $GITHUB_OUTPUT
           fi
-        env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
 
       - name: Checkout
         uses: actions/checkout@v6
