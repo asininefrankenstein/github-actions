@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.2](https://github.com/jacaudi/github-actions/compare/v0.20.1...v0.20.2) (2026-05-02)
+
+### Bug Fixes
+
+* **container-build:** namespace digest artifacts by image-name ([d79c0d5](https://github.com/jacaudi/github-actions/commit/d79c0d5ff649829b346cb96d6900637f6e120254)), closes [jacaudi/github-actions#89](https://github.com/jacaudi/github-actions/issues/89)
+
 ## [0.20.1](https://github.com/jacaudi/github-actions/compare/v0.20.0...v0.20.1) (2026-04-09)
 
 ### Bug Fixes
